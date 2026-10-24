@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "script": "benchmark.benchmark",
+    "timestamp": "2026-10-24 23:05:11",
+    "memories": 200,
+    "top_k": 3,
+    "seed": 42
+  },
+  "hit_rate": {
+    "pre_pollution": {
+      "hit_rate": 0.255,
+      "unrelated_hit_rate": 0.02
+    },
+    "post_pollution": {
+      "hit_rate": 0.255,
+      "unrelated_hit_rate": 0.02
+    },
+    "original_view": {
+      "hit_rate": 0.255,
+      "unrelated_hit_rate": 0.02
+    },
+    "recall_stability": 0.0
+  },
+  "affect_shift": {
+    "beautify_direction_ok": 0.92,
+    "uglify_direction_ok": 0.815,
+    "mean_abs_shift": 1.0601,
+    "polluted_view_changed_ratio": 1.0,
+    "original_unchanged": 400
+  }
+}

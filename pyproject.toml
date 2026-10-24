@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emotion-memory"
+version = "0.4.0"
+description = "类人情感记忆系统：振荡动力学 + 对数强度编码 + 可迁移身份的本地记忆库"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "EmotionMemory Contributors" }]
+keywords = ["memory", "agent", "recall", "forgetting-curve", "identity"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# 许可证红线：零第三方运行时依赖，仅使用 Python 标准库。
+# 对外集成时允许的候选库：FAISS/HNSW (MIT)、Qdrant/Milvus (Apache-2.0)、numpy (BSD)。
+# 禁止引入 GPL 或商业条款组件（如 Neo4j Community、Mem0 等）。
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"emotion_memory" = ["py.typed"]

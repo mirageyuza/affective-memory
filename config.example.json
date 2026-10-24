@@ -1,0 +1,35 @@
+{
+  "backend": "mock",
+  "model": {
+    "openai_compatible": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini",
+      "api_key": "",
+      "local_mode": false,
+      "timeout": 30
+    },
+    "local": {
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "qwen2.5:7b",
+      "api_key": "",
+      "local_mode": true,
+      "timeout": 60,
+      "_comment": "Ollama 兼容 OpenAI 端点；LM Studio 为 http://127.0.0.1:1234/v1"
+    },
+    "transformers": {
+      "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+      "device": "cpu"
+    }
+  },
+  "pipeline": {
+    "top_k": 5,
+    "injected_view": "polluted",
+    "settle_cluster": "对话"
+  },
+  "proactive": {
+    "interval_seconds": 3600,
+    "max_openings": 3,
+    "max_consecutive": 1
+  },
+  "_notice": "api_key 严禁硬编码：优先从环境变量 EMOTION_LLM_API_KEY / OPENAI_API_KEY 读取；本地端点（Ollama / LM Studio）可留空并置 local_mode=true。"
+}
