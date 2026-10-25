@@ -21,8 +21,14 @@ from .model_adapter import (
 from .conversation_pipeline import ConversationPipeline
 from .emergent_self import EmergentSelf
 from .proactive_loop import ProactiveLoop
+# v0.5 物理四定律 + 人格流形
+from .conservation import ConservationError, EmotionConservation
+from .potential_transfer import PotentialTransfer
+from .entropic_forgetting import EntropicForgetting
+from .turbulent_association import TurbulenceAssociator
+from .personality_manifold import EnvironmentVector, PersonalityManifold
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "Dial",
     "AffectLabel",
@@ -39,5 +45,12 @@ __all__ = [
     "ConversationPipeline",
     "EmergentSelf",
     "ProactiveLoop",
+    "ConservationError",
+    "EmotionConservation",
+    "PotentialTransfer",
+    "EntropicForgetting",
+    "TurbulenceAssociator",
+    "EnvironmentVector",
+    "PersonalityManifold",
     "__version__",
 ]

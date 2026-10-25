@@ -47,6 +47,21 @@ class Dial:
     capacitor_discharge_per_recall: float = 0.1  # 每次被想起放电量
     standby_pool_size: int = 3              # standby 备选池容量 top-k
 
+    # ---- v0.5 物理四定律 + 人格流形刻度盘（默认关闭 / 温和，保持既有行为） ----
+    conservation_enabled: bool = False      # 情感守恒律开关（无源注入拒绝 + 能量预算）
+    emotion_budget: float = 100.0          # 系统情感能量总预算（上限）
+    potential_enabled: bool = False        # 势差驱动迁移开关（高势能沉淀长期区）
+    potential_threshold: float = 0.6       # 高势能沉淀阈值
+    importance_weight: float = 0.4         # 势能公式中重复次数加权系数
+    repeat_weight: float = 0.3             # 势能公式中重要性加权系数
+    entropy_enabled: bool = False          # 熵增遗忘开关（熵降权 + 细节先模糊）
+    entropy_rate: float = 0.05             # 熵增速率（细节通道衰减快于情感通道）
+    turbulent_enabled: bool = False        # 湍流联想开关（涡旋扩散）
+    turbulence_decay: float = 0.6          # 涡旋能量随层距衰减系数（0..1）
+    turbulence_max_depth: int = 3          # 涡流链最大扩散层数
+    manifold_enabled: bool = False         # 人格流形开关（全谱系性格空间）
+    manifold_bifurcation_r: float = 3.6    # 非线性分叉参数 r（确定性混沌区 2.8~4.0）
+
     def validate(self) -> "Dial":
         """参数合法性收拢：任何值都不得破坏安全底线。"""
         self.noise_temperature = min(1.0, max(0.0, self.noise_temperature))
@@ -60,6 +75,15 @@ class Dial:
         self.capacitor_charge_per_touch = min(2.0, max(0.0, self.capacitor_charge_per_touch))
         self.capacitor_discharge_per_recall = min(2.0, max(0.0, self.capacitor_discharge_per_recall))
         self.standby_pool_size = max(1, int(self.standby_pool_size))
+        # ---- v0.5 约束 ----
+        self.emotion_budget = max(1.0, float(self.emotion_budget))
+        self.potential_threshold = min(5.0, max(0.05, float(self.potential_threshold)))
+        self.importance_weight = min(2.0, max(0.0, float(self.importance_weight)))
+        self.repeat_weight = min(2.0, max(0.0, float(self.repeat_weight)))
+        self.entropy_rate = min(1.0, max(0.001, float(self.entropy_rate)))
+        self.turbulence_decay = min(1.0, max(0.05, float(self.turbulence_decay)))
+        self.turbulence_max_depth = max(1, min(10, int(self.turbulence_max_depth)))
+        self.manifold_bifurcation_r = min(4.0, max(2.8, float(self.manifold_bifurcation_r)))
         return self
 
     def to_dict(self) -> Dict[str, Any]:

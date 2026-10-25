@@ -78,6 +78,14 @@ class Memory:
     capacitance: float = 1.0        # 容量上限（记忆的"电势容量"）
     discharge_threshold: float = 0.2  # 放电阈值：charge 低于 容量×阈值 则不再优先
 
+    # ---- v0.5 物理四定律 + 人格流形字段 ----
+    source_text: str = ""           # 情感来源事件/交互原文（情感守恒：无源注入拒绝）
+    importance: float = 1.0         # 重要性权重（势差迁移：势能加权项）
+    region: str = "workspace"       # 存储区域：workspace(工作区) / longterm(长期区)
+    detail_fidelity: float = 1.0    # 细节保真度 0..1（熵增遗忘：细节通道，衰减快）
+    emotional_residue: float = 1.0  # 情绪残余 0..1（熵增遗忘：情感通道，衰减慢）
+    entropy: float = 0.0            # 熵值 0..1（有序→无序；越高检索置信度越低）
+
     def __post_init__(self) -> None:
         # 原文不可变约束：original_text 一旦写入即锁定；兼容旧数据回填
         if not self.original_text:
@@ -125,6 +133,13 @@ class Memory:
             charge=float(d.get("charge", 0.0)),
             capacitance=float(d.get("capacitance", 1.0)),
             discharge_threshold=float(d.get("discharge_threshold", 0.2)),
+            # v0.5 物理四定律 + 人格流形（旧数据缺失时用默认值，保证迁移兼容）
+            source_text=str(d.get("source_text", "")),
+            importance=float(d.get("importance", 1.0)),
+            region=str(d.get("region", "workspace")),
+            detail_fidelity=float(d.get("detail_fidelity", 1.0)),
+            emotional_residue=float(d.get("emotional_residue", 1.0)),
+            entropy=float(d.get("entropy", 0.0)),
         )
 
 
