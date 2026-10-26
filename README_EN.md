@@ -68,6 +68,8 @@ Agent = Model Parameters (swappable) + Memory Store (eternal) + Emergent Self (g
 └─────────────────────────────────────────────────┘
 ```
 
+As of v0.5.0, the four physical laws and the personality manifold sit above the memory/recall layers: emotional conservation, potential transfer, entropic forgetting, and turbulent association (each gated by `Dial` switches, off by default, no behavior change when disabled), while the personality manifold drives six-axis personality from an environment vector with deterministic, reproducible nonlinear bifurcation.
+
 Corresponding code layout (`src/emotion_memory/`):
 
 | Module | Responsibility |
@@ -100,6 +102,11 @@ Corresponding code layout (`src/emotion_memory/`):
 | `conversation_pipeline.py` | Conversation pipeline: retrieval injection → model reply → automatic memory settling (v0.4) |
 | `emergent_self.py` | Emergent self engine: statistically generates self-definition from accumulated emotional data, no preset template (v0.4) |
 | `proactive_loop.py` | Proactive conversation loop: timed proactive recall → opening topic → model-generated opener (v0.4) |
+| `conservation.py` | Emotional conservation: global emotional budget constraint; source-less injection raises (v0.5) |
+| `potential_transfer.py` | Potential transfer: high-potential memories settle into the long-term region, low-potential ones drift to the working region (v0.5) |
+| `entropic_forgetting.py` | Entropic forgetting: detail fidelity decays, emotional residue and entropy rise; original text stays intact (v0.5) |
+| `turbulent_association.py` | Turbulent association: vortex-chain core → secondary → periphery with decreasing energy (v0.5) |
+| `personality_manifold.py` | Personality manifold: environment vector drives six-axis personality; deterministic, reproducible nonlinear bifurcation (v0.5) |
 
 ## 3. Quick Start
 
@@ -108,7 +115,8 @@ Corresponding code layout (`src/emotion_memory/`):
 python demo/demo_full_flow.py            # Full flow demo (write → recall → polluted dual-view → forgetting → migration → reminders)
 python demo/demo_v03_full_flow.py        # v0.3 new features demo (rotating field → proactive recall → capacitor → self-learning → unified self)
 python demo/demo_v04_llm_pipeline.py     # v0.4 demo (conversation pipeline → emotion accumulation → emergent self → proactive chat; Mock by default, --config to use a real endpoint)
-python -m unittest discover -s tests -v  # Unit tests (v0.3 totals 106 + v0.4 adds 27 = 133)
+python demo/demo_v05_physical_laws.py    # v0.5 demo (four physical laws → personality manifold → two-environment bifurcation)
+python -m unittest discover -s tests -v  # Unit tests (v0.4 totals 133 + v0.5 adds 70 + adapter adds 22 = 225)
 python -m benchmark.benchmark --memories 1000 --top-k 5   # Benchmark (hit rate / emotional bias / control groups)
 python cli.py --help                         # CLI interactive terminal (root entry)
 python cli.py write "去年生日和三个老同学爬山" --cluster 生活
@@ -300,15 +308,17 @@ report = sys.self_cognition_report()  # cos_phi / clarity / active_power / appar
 
 ### 6.1 Model Adapter Layer (`model_adapter.py`)
 
-Unified LLM interface `chat(messages, ...) -> str`, three backends:
+Unified LLM interface `chat(messages, ...) -> str`; the `MODEL_PROVIDERS` registry routes adapters by provider name, covering the OpenAI-compatible family, Anthropic, Gemini, and local endpoints:
 
-| Backend | Endpoint | Description |
-|---|---|---|
-| `openai_compatible` | any OpenAI-compatible `base_url` | Online APIs (OpenAI / DeepSeek / Qwen etc.) or local endpoints both use the same HTTP protocol |
-| `local` | `http://127.0.0.1:11434/v1` (Ollama) / `http://127.0.0.1:1234/v1` (LM Studio) | `local_mode=true`, empty key allowed |
-| `mock` | no network | Built-in deterministic Mock; zero dependencies for demos/tests |
+| Provider | Endpoint | Environment Variable | Description |
+|---|---|---|---|
+| `openai_compatible` | any OpenAI-compatible `base_url` | `OPENAI_API_KEY`, etc. | Shared adapter for OpenAI / DeepSeek / Qwen / Kimi Moonshot / Zhipu GLM / MiniMax / Doubao Volcano Ark / Wenxin (compat mode); they differ only in endpoint and key variable |
+| `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` | Claude Messages API (x-api-key + anthropic-version) |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta` | `GEMINI_API_KEY` | Google generateContent API |
+| `local_compat` | `http://127.0.0.1:11434/v1` (Ollama) / `http://127.0.0.1:1234/v1` (LM Studio) | none (empty key allowed) | Local OpenAI-compatible endpoint; llama.cpp uses the same protocol |
+| `mock` | no network | none | Built-in deterministic Mock; zero dependencies for demos/tests |
 
-- **Credentials are strictly forbidden from being hardcoded**: `resolve_api_key()` reads environment variables `EMOTION_LLM_API_KEY` / `OPENAI_API_KEY` first, then the `api_key` config field; online endpoints refuse to issue requests when the key is missing;
+- **Credentials are strictly forbidden from being hardcoded**: `resolve_api_key()` reads provider-specific environment variables first (`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY` / `MINIMAX_API_KEY` / `ARK_API_KEY` / `QIANFAN_API_KEY`, etc.; Anthropic / Gemini as above), then the generic variables `EMOTION_LLM_API_KEY` / `OPENAI_API_KEY`, then the `api_key` config field; online endpoints refuse to issue requests when the key is missing and name the required variable;
 - **HTTP uses the standard-library urllib**, zero third-party runtime dependencies; `TransformersAdapter` reserves a direct transformers connection interface (without introducing a runtime dependency);
 - Configuration sample in `config.example.json` (online + local endpoint placeholders, empty key).
 

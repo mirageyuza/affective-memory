@@ -2,6 +2,26 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## v0.5.0 — 物理四定律与人格流形
+
+- 新增 `src/emotion_memory/conservation.py`：情感守恒，全局情感预算约束，无源注入抛错。
+- 新增 `src/emotion_memory/potential_transfer.py`：势差迁移，高势能记忆沉淀长期区、低势能流散工作区。
+- 新增 `src/emotion_memory/entropic_forgetting.py`：熵增遗忘，细节保真度递减、情绪残留与熵递增，原文完好。
+- 新增 `src/emotion_memory/turbulent_association.py`：湍流联想，涡流链中心 → 次级 → 外围能量递减。
+- 新增 `src/emotion_memory/personality_manifold.py`：人格流形，环境向量驱动六轴人格，非线性分叉确定性可复现。
+- 新增 demo：`demo/demo_v05_physical_laws.py`（五环闭环）。
+- 新增单测 70 项：`tests/test_v05_*.py`（含引擎集成）。
+- 测试数演进：133 → 203。
+
+## 适配器更新（v0.5.0 之后增量，未升版本号）
+
+- `model_adapter.py` 升级为多 Provider 注册表：`MODEL_PROVIDERS` 按 provider 名路由适配器，新增 AI 零改动接入。
+- 支持 OpenAI 兼容全家（OpenAI / DeepSeek / 通义 Qwen / Kimi Moonshot / 智谱 GLM / MiniMax / 豆包火山方舟 / 文心千帆兼容模式）、Anthropic Claude（Messages API）、Google Gemini（generateContent API）、本地端点（Ollama / LM Studio / llama.cpp）。
+- 凭据一律走环境变量（OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY 等 provider 专属变量），未配置时抛明确错误提示。
+- 新增 `.env.example`：各 provider 端点 / 默认模型 / 环境变量对照表。
+- 新增单测 22 项：`tests/test_model_adapter_providers.py`（Mock 网络层验证请求构造）。
+- 测试数演进：203 → 225。
+
 ## v0.4.0 — 模型接入层与涌现自我
 
 - 新增 `src/emotion_memory/model_adapter.py`：统一 LLM 接口，支持 OpenAI 兼容在线 API、本地端点（Ollama / LM Studio）、内置 Mock，预留 transformers 直连接口；HTTP 使用标准库 urllib，零第三方运行时依赖。

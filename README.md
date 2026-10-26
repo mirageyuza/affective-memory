@@ -62,6 +62,8 @@
 └─────────────────────────────────────────────────┘
 ```
 
+v0.5.0 起，记忆/回忆层之上新增物理四定律与人格流形：情感守恒、势差迁移、熵增遗忘、湍流联想四套机制（Dial 开关默认关闭，开启不改变既有行为），人格流形以环境向量驱动六轴人格、非线性分叉确定性可复现。
+
 对应代码结构（`src/emotion_memory/`）：
 
 | 模块 | 职责 |
@@ -94,6 +96,11 @@
 | `conversation_pipeline.py` | 对话管线：检索注入 → 模型回复 → 自动沉淀记忆（v0.4） |
 | `emergent_self.py` | 涌现自我引擎：从情感累计数据统计生成自我定义，无预设模板（v0.4） |
 | `proactive_loop.py` | 主动搭话循环：定时主动回忆 → 开场话题 → 模型生成搭话（v0.4） |
+| `conservation.py` | 情感守恒：全局情感预算约束、无源注入抛错（v0.5） |
+| `potential_transfer.py` | 势差迁移：高势能沉淀长期区、低势能流散工作区（v0.5） |
+| `entropic_forgetting.py` | 熵增遗忘：细节保真度递减、情绪残留与熵递增，原文完好（v0.5） |
+| `turbulent_association.py` | 湍流联想：涡流链中心 → 次级 → 外围能量递减（v0.5） |
+| `personality_manifold.py` | 人格流形：环境向量驱动六轴人格、非线性分叉确定性可复现（v0.5） |
 
 ## 3. 快速上手
 
@@ -102,7 +109,8 @@
 python demo/demo_full_flow.py            # 全流程演示（写入→检索→污染双层→遗忘→迁移→提醒）
 python demo/demo_v03_full_flow.py        # v0.3 新功能演示（旋转磁场→主动回忆→电容→自学习→统一自我）
 python demo/demo_v04_llm_pipeline.py     # v0.4 演示（对话管线→情感累计→涌现自我→主动搭话；Mock 默认，--config 接真实端点）
-python -m unittest discover -s tests -v  # 单元测试（v0.3 合计 106 项 + v0.4 新增 27 项 = 133）
+python demo/demo_v05_physical_laws.py    # v0.5 演示（物理四定律→人格流形→双环境分叉）
+python -m unittest discover -s tests -v  # 单元测试（v0.4 合计 133 项 + v0.5 新增 70 项 + 适配器新增 22 项 = 225）
 python -m benchmark.benchmark --memories 1000 --top-k 5   # benchmark（命中率/情感偏差/对照组）
 python cli.py --help                         # CLI 交互终端（根目录入口）
 python cli.py write "去年生日和三个老同学爬山" --cluster 生活
@@ -294,15 +302,17 @@ report = sys.self_cognition_report()  # cos_phi / clarity / active_power / appar
 
 ### 6.1 模型适配层（`model_adapter.py`）
 
-统一 LLM 接口 `chat(messages, ...) -> str`，三种后端：
+统一 LLM 接口 `chat(messages, ...) -> str`，`MODEL_PROVIDERS` 注册表按 provider 名路由，已支持 OpenAI 兼容全家、Anthropic、Gemini 与本地端点：
 
-| 后端 | 端点 | 说明 |
-|---|---|---|
-| `openai_compatible` | 任意 OpenAI 兼容 `base_url` | 在线 API（OpenAI/DeepSeek/通义等）或本地端点均走同一 HTTP 协议 |
-| `local` | `http://127.0.0.1:11434/v1`（Ollama）/ `http://127.0.0.1:1234/v1`（LM Studio） | `local_mode=true`，允许空 key |
-| `mock` | 无网络 | 内置确定性 Mock，演示/测试零依赖 |
+| provider | 端点 | 环境变量 | 说明 |
+|---|---|---|---|
+| `openai_compatible` | 任意 OpenAI 兼容 `base_url` | `OPENAI_API_KEY` 等 | OpenAI / DeepSeek / 通义 Qwen / Kimi Moonshot / 智谱 GLM / MiniMax / 豆包火山方舟 / 文心千帆（兼容模式）共用此适配器，仅端点与密钥变量不同 |
+| `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` | Claude Messages API（x-api-key + anthropic-version） |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta` | `GEMINI_API_KEY` | Google generateContent API |
+| `local_compat` | `http://127.0.0.1:11434/v1`（Ollama）/ `http://127.0.0.1:1234/v1`（LM Studio） | 无（允许空 key） | 本地 OpenAI 兼容端点，llama.cpp 同协议 |
+| `mock` | 无网络 | 无 | 内置确定性 Mock，演示/测试零依赖 |
 
-- **凭据严禁硬编码**：`resolve_api_key()` 优先读环境变量 `EMOTION_LLM_API_KEY` / `OPENAI_API_KEY`，其次配置 `api_key` 字段；在线端点缺 key 直接拒绝发起请求；
+- **凭据严禁硬编码**：`resolve_api_key()` 优先读 provider 专属环境变量（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY` / `MINIMAX_API_KEY` / `ARK_API_KEY` / `QIANFAN_API_KEY` 等，Anthropic / Gemini 见上表），其次通用变量 `EMOTION_LLM_API_KEY` / `OPENAI_API_KEY`，再其次配置 `api_key` 字段；在线端点缺 key 直接拒绝发起请求并提示所需变量名；
 - **HTTP 用标准库 urllib**，零第三方运行时依赖；`TransformersAdapter` 预留 transformers 直连接口（不引入运行时依赖）；
 - 配置示例见 `config.example.json`（在线 + 本地两套端点占位、空 key）。
 
