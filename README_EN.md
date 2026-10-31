@@ -1,14 +1,12 @@
 # EmotionMemory — A Human-Like Emotional Memory System
 
-> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity**.
+> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity** (current version **v0.6.0**).
 
 Memories are reawakened by periodic oscillations, their intensity is modulated by emotional gain on a dB scale, overload triggers divergent associations, accessibility follows a forgetting curve over time. The system knows when to speak — and when to stay silent. An agent can be reset, reinstalled, or upgraded, but its memories live forever.
 
 **License**: MIT. Zero third-party runtime dependencies (Python standard library only). Index backends such as FAISS / HNSW / Qdrant may be freely integrated under MIT / Apache-2.0 / BSD licenses. **Dependencies under GPL or commercial terms are strictly forbidden.**
 
----
-
-## 0. Open-Source Foundation and Compliance Attribution (Which Open-Source Projects This Project Is Based On)
+## 0. Open-Source Foundation and Compliance Attribution
 
 This project is positioned as an **integration wrapper around open-source components**: rather than reinventing the wheel, each capability layer is designed against mature open-source projects (interface-compatible, pluggable), with strict license compliance constraints.
 
@@ -21,10 +19,9 @@ This project is positioned as an **integration wrapper around open-source compon
 | Sentiment analysis | Existing sentiment classification models (per model license) | Per model license | Reserved `affect=(valence, arousal)` label hook |
 | Forgetting-curve reference | FSRS / Anki (SM-2) algorithms | Permissive (MIT-family) | Reference implementation of accessibility decay/boost model |
 | Migration protocol | git / rsync incremental ideas | Permissive | Current-bridge incremental export (changed entries only) |
+| Embedding vectorization | OpenAI-compatible embed API / sentence-transformers | Per API license / MIT (local) | Optional `EmbeddingVectorizer` (v0.6), off by default, no runtime dependency |
 
-**Compliance red line**: when releasing the whole package as open source, all runtime and index dependencies must be MIT / Apache-2.0 / BSD family; GPL and commercial-term components (e.g., Neo4j Community, Mem0 commercial edition, AGPL-family tools such as PyMuPDF) must never be introduced.
-
----
+**Compliance red line**: when releasing the whole package as open source, all runtime and index dependencies must be MIT / Apache-2.0 / BSD family; GPL and commercial-term components (e.g., Neo4j Community, Mem0 commercial edition, AGPL-family tools such as PyMuPDF) must never be introduced. The v0.6 embedding enhancement follows the same red line: online endpoints use the OpenAI-compatible embed API over the standard-library `urllib` (no third-party dependency); local sentence-transformers is available only when explicitly enabled and self-installed by the user (MIT license), and does not enter the runtime dependency list.
 
 ## 1. Vision
 
@@ -70,333 +67,209 @@ Agent = Model Parameters (swappable) + Memory Store (eternal) + Emergent Self (g
 
 As of v0.5.0, the four physical laws and the personality manifold sit above the memory/recall layers: emotional conservation, potential transfer, entropic forgetting, and turbulent association (each gated by `Dial` switches, off by default, no behavior change when disabled), while the personality manifold drives six-axis personality from an environment vector with deterministic, reproducible nonlinear bifurcation.
 
+As of v0.6.0, the retrieval layer adds an **optional embedding vectorization enhancement**: `EmbeddingVectorizer` is a pluggable backend (OpenAI-compatible embed API / local sentence-transformers); when disabled (default), the system still uses the zero-dependency bag-of-words hash path, preserving existing interfaces and unit tests. The benchmark now includes a **bag-of-words vs embedding** comparison dimension.
+
 Corresponding code layout (`src/emotion_memory/`):
 
 | Module | Responsibility |
 |---|---|
 | `models.py` | Data models for memory / affect labels / cluster metadata |
-| `config.py` | Freedom dial `Dial` (default: low noise, high stability) |
+| `config.py` | Freedom dial `Dial` (default: low noise, high stability; v0.6 adds embedding switches) |
+| `embeddings.py` | **(v0.6) Optional EmbeddingVectorizer**: mock / openai_compat / local_compat / gemini / sentence_transformers, same interface as bag-of-words |
 | `store/storage.py` | Original-text storage layer: JSONL disk persistence; `original_text` is archived permanently and cannot be modified or deleted; `text` is the pollutable view that can be persisted |
 | `store/vector_index.py` | Vector index: bag-of-words hashed vectors + brute-force ANN (interfaces swappable to FAISS/HNSW) |
-| `store/graph_index.py` | Lightweight entity-relation graph index: related-cluster targeting + strong association edges |
+| `store/graph_index.py` | Lightweight entity-relation graph index: related-cluster localization + strong-association edges |
 | `algorithms/forgetting.py` | Forgetting curve: accessibility score decay and reinforcement |
 | `algorithms/hit_function.py` | Oscillatory hit function H(t): multi-channel frequency/phase |
 | `algorithms/affect.py` | Emotional gain + dB trade-off ranking (affects ranking only, never original text) |
-| `algorithms/pollution.py` | Emotional pollution filter: generates beautified/uglified polluted versions from original text; output view only |
-| `algorithms/affect_analyzer.py` | Zero-dependency automatic affect annotator: computes (valence, arousal) at write time; reserves external model hook |
-| `reminder.py` | Time-sensitive reminders: due memories are never silenced, injected into context when due, acknowledgement receipts |
-| `retrieval/recall.py` | Retrieval layer: related-cluster targeting → ANN recall → ranking → dual-view binding (view=polluted/original) |
+| `algorithms/pollution.py` | Emotional pollution filter: beautify/uglify versions generated from original text, output view only |
+| `algorithms/affect_analyzer.py` | Zero-dependency automatic affect labeler: computes (valence, arousal) on write; external model hook reserved |
+| `reminder.py` | Time-sensitive reminders: due memories never silenced, injected into context, ack receipt |
+| `retrieval/recall.py` | Retrieval layer: related-cluster → ANN recall → ranking → dual-view binding (view=polluted/original) |
 | `silence.py` | Silence layer: mentionable/silent two levels + unlock conditions + never-silent |
-| `divergent.py` | Divergent mode (disabled by default) |
-| `concurrent.py` | Concurrent association (disabled by default, Map-Reduce) |
-| `bridge.py` | Current-bridge migration protocol: export/import + SHA-256 verification + reject recovery on failure |
+| `divergent.py` | Divergent mode (off by default) |
+| `concurrent.py` | Concurrent association (off by default, Map-Reduce) |
+| `bridge.py` | Current-bridge migration protocol: export/import + SHA-256 verification + refuse-to-recover on failure |
 | `identity.py` | Identity profile + lifecycle state machine (reset farewell / reinstall wake-up / upgrade move) |
-| `engine.py` | Top-level wrapper API (polluted read/write, due reminders, auto annotation, direct-ask unlock) |
-| `cli.py` | CLI interactive terminal: write/retrieve/direct-ask unlock/status/dial/export-import/pollution control |
-| `algorithms/three_phase.py` | Rotating-magnetic-field recall scheduling: three-phase channels with 120° phase difference, sequential activation (v0.3) |
+| `engine.py` | Top-level API (pollution read/write, due reminders, auto-labeling, direct-ask unlock; v0.6 supports `vectorizer=` injection) |
+| `cli.py` | CLI terminal: write/recall/direct-ask/status/dial/export-import/pollution control |
+| `algorithms/three_phase.py` | Rotating magnetic-field recall scheduling: three-phase channels with 120° phase offsets (v0.3) |
 | `algorithms/capacitor.py` | Capacitor memory model: charge/discharge/leak + standby pool (v0.3) |
 | `retrieval/proactive.py` | Proactive recall engine: timer/trigger-driven autonomous speaking (v0.3) |
-| `self_learning.py` | Identity self-learning: gradual profile evolution + proactive question confirmation (v0.3) |
-| `unified_self.py` | Unified self model: 1 core + myriads of avatars + all-things-are-me + active/apparent indicators (v0.3) |
-| `model_adapter.py` | Model adapter layer: unified LLM interface; OpenAI-compatible online / local (Ollama, LM Studio) + Mock + transformers placeholder (v0.4) |
+| `self_learning.py` | Identity self-learning: profile gradual evolution + proactive question confirmation (v0.3) |
+| `unified_self.py` | Unified self model: 1 core + avatars + all-is-me + active/apparent power metrics (v0.3) |
+| `model_adapter.py` | Model adapter layer: unified LLM/embed interface; OpenAI-compatible online / local (Ollama, LM Studio) + Mock + transformers reserved (v0.4, multi-provider registry) |
 | `conversation_pipeline.py` | Conversation pipeline: retrieval injection → model reply → automatic memory settling (v0.4) |
-| `emergent_self.py` | Emergent self engine: statistically generates self-definition from accumulated emotional data, no preset template (v0.4) |
-| `proactive_loop.py` | Proactive conversation loop: timed proactive recall → opening topic → model-generated opener (v0.4) |
-| `conservation.py` | Emotional conservation: global emotional budget constraint; source-less injection raises (v0.5) |
-| `potential_transfer.py` | Potential transfer: high-potential memories settle into the long-term region, low-potential ones drift to the working region (v0.5) |
-| `entropic_forgetting.py` | Entropic forgetting: detail fidelity decays, emotional residue and entropy rise; original text stays intact (v0.5) |
-| `turbulent_association.py` | Turbulent association: vortex-chain core → secondary → periphery with decreasing energy (v0.5) |
-| `personality_manifold.py` | Personality manifold: environment vector drives six-axis personality; deterministic, reproducible nonlinear bifurcation (v0.5) |
+| `emergent_self.py` | Emergent self engine: self-definition generated from accumulated affect statistics, no preset template (v0.4) |
+| `proactive_loop.py` | Proactive speaking loop: timed proactive recall → opening topic → model-generated speech (v0.4) |
+| `conservation.py` | Emotional conservation: global affect budget constraint, no-source injection raises (v0.5) |
+| `potential_transfer.py` | Potential transfer: high-potential settles into long-term zone, low-potential disperses to working zone (v0.5) |
+| `entropic_forgetting.py` | Entropic forgetting: detail fidelity decays, emotional residue and entropy rise, original intact (v0.5) |
+| `turbulent_association.py` | Turbulent association: vortex chain center → secondary → periphery with decreasing energy (v0.5) |
+| `personality_manifold.py` | Personality manifold: environment-vector-driven six-axis personality, deterministic reproducible bifurcation (v0.5) |
 
 ## 3. Quick Start
 
 ```bash
-# Zero dependencies, Python 3.9+ only
-python demo/demo_full_flow.py            # Full flow demo (write → recall → polluted dual-view → forgetting → migration → reminders)
-python demo/demo_v03_full_flow.py        # v0.3 new features demo (rotating field → proactive recall → capacitor → self-learning → unified self)
-python demo/demo_v04_llm_pipeline.py     # v0.4 demo (conversation pipeline → emotion accumulation → emergent self → proactive chat; Mock by default, --config to use a real endpoint)
-python demo/demo_v05_physical_laws.py    # v0.5 demo (four physical laws → personality manifold → two-environment bifurcation)
-python -m unittest discover -s tests -v  # Unit tests (v0.4 totals 133 + v0.5 adds 70 + adapter adds 22 = 225)
-python -m benchmark.benchmark --memories 1000 --top-k 5   # Benchmark (hit rate / emotional bias / control groups)
-python cli.py --help                         # CLI interactive terminal (root entry)
+# Zero dependency, Python 3.9+ only
+python demo/demo_full_flow.py            # Full flow (write→recall→dual-view pollution→forgetting→migration→reminder)
+python demo/demo_v03_full_flow.py        # v0.3 features (three-phase field→proactive recall→capacitor→self-learning→unified self)
+python demo/demo_v04_llm_pipeline.py     # v0.4 (conversation pipeline→emergent self→proactive loop; Mock default, --config for real endpoint)
+python demo/demo_v05_physical_laws.py    # v0.5 (four physical laws→personality manifold→dual-environment bifurcation)
+python demo/demo_v06_marvis_integration.py # v0.6 demo (Marvis integration example)
+python demo/demo_pollution_llm_effect.py   # v0.6 demo (attitude drift when polluted memories are fed to an LLM; offline Mock, --config for real model)
+python -m unittest discover -s tests -v  # Unit tests (v0.6 total: 235, all green)
+python -m benchmark.benchmark --memories 1000 --top-k 5   # Benchmark (bag-of-words vs embedding, see Chapter 6)
+python cli.py --help                         # CLI terminal (repo root entry)
 python cli.py write "去年生日和三个老同学爬山" --cluster 生活
 python cli.py recall "爬山 生日" --view original
 ```
 
-### Core Usage
+### 3.1 Enabling the Optional Embedding Vectorizer (v0.6)
+
+```python
+from emotion_memory.engine import EmotionalMemorySystem
+from emotion_memory.embeddings import make_vectorizer
+
+# Option 1: zero-config mock (link verification only; deterministic 8-dim)
+mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(backend="mock"))
+
+# Option 2: OpenAI-compatible embed API (reuses model_adapter.embed; credentials via EMOTION_LLM_API_KEY / OPENAI_API_KEY)
+mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(
+    backend="openai_compat",
+    base_url="https://api.openai.com/v1",
+    model="text-embedding-3-small",
+))
+
+# Option 3: local sentence-transformers (must be self-installed; MIT license; auto-fallback + warning if missing)
+mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(
+    backend="sentence_transformers", model_name="BAAI/bge-small-zh-v1.5"
+))
+```
+
+When disabled or when the backend is unavailable, the engine automatically falls back to the zero-dependency bag-of-words hash and prints a warning, without breaking existing behavior. See the `embedding` section of `config.example.json`.
+
+## 4. Core API
 
 ```python
 from emotion_memory.engine import EmotionalMemorySystem
 
 mem = EmotionalMemorySystem("data_dir")
 mem.remember("用户说喜欢晨跑，讨厌雨天", cluster="hobby", entities=["晨跑", "雨天"],
-             affect=(0.6, 0.4))            # valence, arousal; auto-annotated when affect is omitted
+             affect=(0.6, 0.4))            # valence, arousal; auto-labeled when affect is omitted
 
-hits = mem.recall("晨跑")                  # Retrieve: related cluster → ANN → ranking → injection (polluted view by default)
-mem.decay_all()                            # Forgetting curve decays over time
-mem.export("data_dir/bridge.json")         # Current-bridge export (includes SHA-256)
+hits = mem.recall("晨跑")                  # Retrieval: related-cluster → ANN → ranking → injection (polluted view by default)
+mem.decay_all()                            # Forgetting curve over time
+mem.export("data_dir/bridge.json")         # Current-bridge export (with SHA-256)
 ```
-
-### Emotional Pollution Dual-View
 
 ```python
-# Original text is archived forever; pollution only affects the output view (recall returns the polluted version by default, original is recoverable)
-mem.apply_pollution(mid, mode="beautify", intensity=1.0)   # Beautify filter
-mem.apply_pollution(mid, mode="uglify", intensity=1.0)     # Uglify filter
-hits = mem.recall("晨跑", view="polluted")  # Default: polluted version
-hits = mem.recall("晨跑", view="original")  # Parameter to look back at the original text
-mem.clear_pollution(mid)                    # Purify back to original; audit history is kept
-mem.view_memory(mid)                        # Dual view + pollution audit (pollution_history)
+# Original text is archived forever; pollution only affects the output view (polluted by default, original recoverable)
+mem.apply_pollution(mid, mode="beautify", intensity=1.0)   # beautify filter
+mem.apply_pollution(mid, mode="uglify", intensity=1.0)     # uglify filter
+hits = mem.recall("晨跑", view="polluted")  # default: polluted output
+hits = mem.recall("晨跑", view="original")  # parameter to recover original text
+mem.clear_pollution(mid)                    # purify back to original; audit history retained
+mem.view_memory(mid)                        # dual-view + pollution audit (pollution_history)
 ```
-
-### Automatic Affect Annotation
 
 ```python
-mem.remember("用户说喜欢晨跑", cluster="hobby")  # affect omitted → auto-annotated as (valence, arousal)
-# Reserved external model hook: EmotionalMemorySystem(affect_provider=my_external_model)
+mem.remember("用户说喜欢晨跑", cluster="hobby")  # no affect → auto-label (valence, arousal)
+# External model hook: EmotionalMemorySystem(affect_provider=my_external_model)
 ```
-
-### Time-Sensitive Reminders
 
 ```python
 mem.remember("明天上午十点交房租", due_at=deadline_ts, never_silent=True)
-reminders = mem.due_reminders()            # Due, unacknowledged high-risk / time-sensitive memories
-ctx = mem.context_with_reminders([])       # Due reminders injected into context (never silent)
-mem.ack_reminder(mid)                      # Acknowledge reminder
+reminders = mem.due_reminders()            # Due high-risk/time-sensitive memories
+ctx = mem.context_with_reminders([])       # Inject due reminders (never silenced)
+mem.ack_reminder(mid)                      # Ack reminder
 ```
-
-### Freedom Dial
 
 ```python
 from emotion_memory.config import Dial
 
-dial = Dial(noise_temperature=0.1,   # Noise temperature 0~1, low noise by default
-            emotion_gain=0.3,        # Emotional gain, gentle
-            jump_probability=0.05,   # Cross-cluster jump probability
-            amplitude=1.0,           # Hit function amplitude
-            divergent_enabled=False) # Divergent mode off by default
+dial = Dial(noise_temperature=0.1,   # noise temperature 0~1, default low
+            emotion_gain=0.3,        # emotional gain, mild
+            jump_probability=0.05,   # cross-cluster jump probability
+            amplitude=1.0,           # hit function amplitude
+            divergent_enabled=False, # divergent mode off by default
+            embedding_enabled=False) # v0.6: embedding vectorization off by default
 ```
 
-Safety bottom lines are never lifted: original text is archived forever but the output can be emotionally polluted (polluted version by default, original recoverable); sensitive data never leaks; high-risk / time-sensitive reminders are never silenced; farewell / migration execute deterministically. Divergent and concurrent modes are off by default; the emotional filter defaults to the gentle setting.
+## 5. Safety Baseline
 
-## 4. Benchmark Plan
+1. Original text is archived forever but can be emotionally polluted: `original_text` is never deleted and cannot be rewritten by filters (audit/backtracking preserved); the filter generates a **polluted version** from the original; retrieval and context injection default to the polluted view; pass `view="original"` to recover the original — humans are contradictory: they remember facts and cannot forget filters;
+2. High-risk / time-sensitive memories are never silenced; due reminders are auto-injected and require explicit ack;
+3. Farewell / wake-up / migration are all deterministic; model free-play is forbidden;
+4. Migration must be verified (SHA-256 + full comparison); refuse to recover on failure;
+5. "Remove all limits" means turning the dial all the way up, not removing the dial; the default is low-noise, high-stability;
+6. Credentials are never hardcoded: embedding / LLM api_keys always come from environment variables or config.
 
-### 4.1 Recall Accuracy
+## 6. Benchmark Results (v0.6 Comparison Upgrade)
 
-- Data: construct N memories each with a unique keyword (N = 1k / 10k / 100k);
-- Metrics: using the keyword as query, whether `recall@k` hits the target memory (k = 1/5/10), and the share of non-target memories within top-k (precision);
-- Control groups: ① hit function disabled (pure similarity) ② emotional gain disabled ③ default dial vs. maxed-out dial.
-- All hit-rate comparisons use a zero-noise dial (`noise_temperature=0`) so oscillatory scoring is fully deterministic, guaranteeing strict comparability before/after pollution (`|Δ|=0` means pollution does not break recall).
+`python -m benchmark.benchmark --memories N --top-k K --seed S` outputs JSON + TXT reports quantifying: **recall accuracy** (pre-pollution / post-pollution / original view / unrelated queries), **bag-of-words vs embedding comparison**, **recall stability** (pollution does not break recall), **affect bias** (beautify/uglify directional accuracy, mean shift), and **original-text immutability** (kept count).
 
-### 4.2 Forgetting Curve Effectiveness
+> All accuracy comparisons use the zero-noise dial (`noise_temperature=0`), making oscillation scoring fully deterministic and pre/post-pollution strictly comparable (`|Δ|=0` means pollution does not break recall).
 
-- Apply simulated time advance to a set of memories (`decay_all(dt_hours)`) and plot the `accessibility ~ ΔT` curve;
-- Verify: high-frequency memories keep high accessibility over the long term; low-frequency memories decay monotonically but never reach zero (never forgets).
+### 6.1 Current Measured Numbers (honest, no fabrication)
 
-### 4.3 Quantifiable Emotional Bias
+Reproducible baseline results in this repository (300 mixed CN/EN memories, top-k=5, multiple seeds; see `benchmark/benchmark_report*.json`):
 
-- Emotional bias = mean drift of emotional scores in ranked retrieval results (centroid of output distribution in valence/arousal vs. centroid of the whole memory store);
-- Verify: at default settings bias is small (low noise, high stability); maxing out the dial increases bias — proving ranking is controlled by emotional gain, not random noise.
+| Metric | seed=1 | seed=2 | seed=3 | Note |
+|---|---|---|---|---|
+| Bag-of-words hit rate (pre-pollution) | 31.00% | 30.67% | 32.67% | BOW baseline (≈0.255–0.33 band, seed-sensitive) |
+| Bag-of-words hit rate (post-pollution) | 31.00% | 30.67% | 32.67% | Identical to pre-pollution, `|Δ|=0` |
+| Original-view hit rate | 31.00% | 30.67% | 32.67% | Identical to pre-pollution |
+| Unrelated-query hit rate | 1.33% | 2.33% | 2.00% | Far below target queries; retrieval is discriminative |
+| Embedding(mock) hit rate | 2.67% | 1.00% | 1.33% | **Link verification only**, not real semantic quality |
+| Affect bias beautify accuracy | 90.67% | — | — | directional accuracy (seed=1) |
+| Affect bias uglify accuracy | 80.67% | — | — | directional accuracy (seed=1) |
+| Original-text immutability | 600/600 | — | — | kept count pre/post pollution |
 
-### 4.4 Migration Consistency
+**Important notes (honest disclosure)**:
 
-- Export → tamper with any byte → import must refuse to restore;
-- Export → import as-is → full comparison (memory count, every memory_id / text / accessibility) must be 100% identical;
-- Performance: migration time scales approximately linearly with memory volume.
+1. **Bag-of-words baseline ≈ 0.255** was the planning target reference; current reproducible runs (300 memories × multiple seeds) measure **30.7%–32.7%**, above the target reference, with fluctuation caused by random seeds and hash-collision distribution over the mixed CN/EN corpus;
+2. **The embedding comparison uses the mock backend**: mock is a deterministic 8-dim embedding that only validates the `EmbeddingVectorizer` integration path and the benchmark comparison pipeline; **it does not represent real semantic retrieval quality**. When a real backend (OpenAI-compatible / sentence-transformers) lacks credentials or dependencies, the benchmark honestly marks `status=unavailable` and does not fabricate numbers;
+3. Recall stability `|Δ|=0`: the pollution filter does not break recall, consistent with the design goal;
+4. The full JSON report is at `benchmark/benchmark_report.json` (including the `status` field).
 
-### 4.5 Silence Layer Safety
+## 7. Version History at a Glance
 
-- Construct silent + high-risk + ordinary memories; verify: ordinary queries never return silent items; direct-ask unlocks; high-risk items are always injected.
+- **v0.3**: rotating magnetic-field recall (three-phase 120°), proactive recall engine, capacitor memory model, identity self-learning, unified self model;
+- **v0.4**: model adapter layer (OpenAI-compatible / Anthropic / Gemini / local endpoints / Mock), conversation pipeline, emergent self, proactive speaking loop;
+- **v0.5**: four physical laws (emotional conservation / potential transfer / entropic forgetting / turbulent association) + personality manifold;
+- **v0.6**: optional embedding vectorization, benchmark bag-of-words vs embedding comparison, pollution-effect experiment demo, version alignment, bilingual README rewrite, Marvis integration archive (demo/demo_v06_marvis_integration.py), model_adapter multi-provider registry archive.
 
-## 5. v0.3 Five New Features
+## 8. Known Limitations and Roadmap (v0.6, honest)
 
-> All five new capabilities are **off** by default (corresponding `Dial` switches are `False`, preserving the existing 68 behaviors).
-> Once enabled they add independent dial parameters; all implementations use the standard library only, are deterministic and auditable, and never touch the safety red lines.
+**Known limitations**:
 
-### 5.1 Rotating-Magnetic-Field Recall Scheduling (Three-Phase Sequential Activation)
+- The default bag-of-words hashed vectors have no semantic generalization; synonymous rewrites / cross-language queries have limited hit rates (currently measured ≈30%, seed-sensitive);
+- Embedding enhancement is currently an **optional backend with mock link verification**: real OpenAI-compatible endpoints require user-configured credentials (never hardcoded); sentence-transformers must be self-installed (MIT license); when not connected, the benchmark honestly reports `unavailable`;
+- Single-machine JSONL storage + brute-force ANN: targeted at individuals / small teams; no distributed, multi-tenant, or sub-second large-scale retrieval (boundary vs Zep Cloud / Mem0 enterprise scenarios in COMPARISON.md);
+- The affect labeler is a zero-dependency built-in lexicon, less accurate than LLM labeling; `affect_provider` external hook reserved;
+- No automated dependency scanner for GPL/commercial-license forbidden lists yet (compliance relies on manual review of NOTICE.md).
 
-A new **`ThreePhaseField`** view built on top of `OscillationBank` (H(t)), **without breaking the H(t) interface**:
+**Roadmap**:
 
-- Memory clusters are assigned to **A/B/C three-phase channels** by stable hashing, with phases offset by **120° (0° / 120° / 240°)**;
-- The dominant channel rotates over time (0→1→2→0, like sequential energization of a three-phase induction motor stator winding);
-  the current dominant channel is recalled first, subordinate channels follow asynchronously (leader gain ×1.0 / follower ×0.4);
-- Emits a **continuous association stream** (`three_phase_stream()`): field state (dominant channel / phase sequence / phase offsets) + memory stream sorted by activation intensity, for proactive recall and context injection.
+1. Integrate real embedding backends (OpenAI-compatible / sentence-transformers / local vector DB) to replace bag-of-words hashing with semantic hit rates, with an honest "bag-of-words vs real embedding" benchmark comparison;
+2. Retrieval ranking fusion: emotional gain × vector similarity × forgetting accessibility, three-channel weighted;
+3. Optional vector DB backends (FAISS / HNSW / Qdrant, all MIT / Apache-2.0, license-compliant) to replace brute-force ANN;
+4. Large-scale memory stress tests (1k / 10k / 100k) with recall@k curves;
+5. Automated compliance scanning (dependency license checks) in CI.
 
-```python
-dial = Dial(three_phase_enabled=True, three_phase_speed=1.0)
-out = sys.three_phase_stream(now=3.0, k=3)   # field / stream
-print(out["field"]["leader_channel"], out["field"]["sequence"])
-```
+## 9. Horizontal Comparison
 
-### 5.2 Proactive Recall Engine
+See [COMPARISON.md](COMPARISON.md) for the full comparison with mainstream AI-memory projects (Mem0, Letta, Zep/Graphiti, Cognee). Core differentiators:
 
-`ProactiveRecallEngine`: **timer / trigger-driven autonomous recall and speaking**, the passive `recall()` interface is unchanged:
+1. **Emotion is unique**: mainstream memory stores are emotionless retrieval layers; this project is the only one that treats valence/arousal and the dual-view pollution filter as first-class citizens;
+2. **Forgetting is a design, not a bug**: the forgetting curve only lowers accessibility and never deletes original text;
+3. **Identity emerges from data**: no preset profile; "what you are" is dynamically generated from accumulated affect;
+4. **Portability**: deterministic current-bridge migration (SHA-256 + full comparison) is unique among peers;
+5. **Zero dependency + MIT**: lowest deployment cost; no GPL (avoids Neo4j), no commercial terms (avoids Mem0 Cloud).
 
-- **Timer trigger**: only fires after more than `proactive_interval_hours` since the last utterance (to avoid being bothersome);
-- **Triggers**: due reminders (never silent) speak first, followed by high-potential candidates from the capacitor standby pool;
-- **Opening topics**: deterministic template = time context (morning/afternoon/evening + weekday) + memory content; testable and auditable; model free-play is forbidden.
+## Appendix: Compliance and Ethics
 
-```python
-dial = Dial(proactive_enabled=True, proactive_interval_hours=6.0)
-res = sys.proactive_tick()   # {"should_speak": True, "trigger": "reminder|proactive", "opening": "..."}
-```
-
-### 5.3 Capacitor Memory Model (Charge / Discharge / Threshold / Standby Pool)
-
-`CapacitorModel` maintains `charge / capacitance / discharge_threshold` per memory, an RC-circuit analogy:
-
-- **Interaction touch = charge**: `charge += Δq` (capped at capacitance); **being recalled = discharge**: `charge -= discharge_rate`;
-- **Time passing = leakage**: `charge *= exp(-Δt/τ)`, working with the forgetting curve (total accessible potential = `accessibility × (0.5 + 0.5·charge/capacitance)`, dual-channel forgetting: lowers probability only, never deletes content);
-- **Standby pool**: reserves top-k candidate memory points each time — high-potential candidates that are "fully charged but not yet reawakened" (silent memories stay out of the pool by default).
-
-```python
-dial = Dial(capacitor_enabled=True, capacitor_tau_hours=48.0, standby_pool_size=3)
-sys.touch(mid)              # Touch = charge
-hits = sys.recall("爬山")   # Being recalled = discharge
-pool = sys.standby_pool()   # Standby candidate pool
-```
-
-### 5.4 Identity Self-Learning (Gradual Evolution of Personality / Mission Profile)
-
-`IdentitySelfLearning` maintains an independent profile (`self_model.json`) **outside** the deterministic identity state machine:
-
-- Extracts cues from interaction text (likes / dislikes / skills / goals + emotional words), evolving the five-factor personality by EMA smoothing
-  (openness / conscientiousness / extraversion / agreeableness / neuroticism) along with
-  interest / dislike / skill / mission buckets;
-- **Proactive question confirmation**: generates deterministic questions about profile hypotheses (`pending_self_questions()`);
-  user confirmation boosts confidence, denial rolls back and refines — "gradually learning who you are and what you are meant to do";
-- **Ritual-compatible**: farewell / wake-up / upgrade still execute deterministically; rituals do not clear the profile file; evolution continues after the ritual.
-
-```python
-sys.learn_self("我喜欢爬山，目标是成为工程师")
-for q in sys.pending_self_questions():
-    print(q["question"])
-sys.confirm_self(q["id"], answer=True)
-```
-
-### 5.5 Unified Self Model (1 Core + Myriads of Avatars + All Things Are Me)
-
-`UnifiedSelfModel` (`unified_self.json`) embodies "I am one, one is me, I am all avatars, all things are me":
-
-- **One self core**: identity marker + self-concept vector (five-factor personality), the single true self;
-- **Myriads of avatars**: `derive_avatar()` derives any avatar; after core updates `sync_avatars()` pushes the sync (all avatars as one);
-  `merge_avatar()` merges back into the core (all avatars unite as one, mean-fused);
-- **All things are me**: new input is first interpreted through the self framework (relevance projection onto the self-concept) before deciding whether to absorb it into the store;
-  irrelevant input does not change the self-concept (`assimilate()`);
-- **Efficiency indicators** (active/apparent analogy): apparent power = magnitude of the self-concept vector, active power = same-direction component,
-  `cosφ = active/apparent ∈ [0,1]` quantifies self-concept clarity — the more consistent, the clearer the self (`self_cognition_report()`).
-
-```python
-sys.derive_avatar("工作分身")
-sys.sync_avatars()                    # All avatars as one
-sys.assimilate("我的使命是帮用户记住重要的事")  # All things are me → absorb into store
-report = sys.self_cognition_report()  # cos_phi / clarity / active_power / apparent_power
-```
-
-### 5.6 Acceptance and Compliance
-
-- Each new module has unit tests (`tests/test_v03_*.py`); full demo flow in `demo/demo_v03_full_flow.py`;
-- All existing 68 tests keep passing, v0.3 adds 38 (total 106), full run `python -m unittest discover -s tests -v`;
-- Still standard library only (zero third-party dependencies); license red line unchanged: MIT/Apache-2.0/BSD family, GPL/commercial terms forbidden.
-
-## 6. v0.4 Model Integration and Emergent Self
-
-> v0.4 lets the system truly "speak and settle who it is": both online APIs and local models can automatically settle conversations into emotional memories.
-> The agent's self-definition no longer comes from a preset profile; it is a product generated by the accumulated emotional system — every conversation/experience is settled into an emotional memory
-> (valence/arousal labels, pollution layer, capacitor charge), from which the system dynamically mines a self-definition
-> (personality dimensions, mission, self-concept), with no preset template; after reinstall/wake-up, identity is rebuilt from accumulated data rather than loaded from a fixed profile.
-
-### 6.1 Model Adapter Layer (`model_adapter.py`)
-
-Unified LLM interface `chat(messages, ...) -> str`; the `MODEL_PROVIDERS` registry routes adapters by provider name, covering the OpenAI-compatible family, Anthropic, Gemini, and local endpoints:
-
-| Provider | Endpoint | Environment Variable | Description |
-|---|---|---|---|
-| `openai_compatible` | any OpenAI-compatible `base_url` | `OPENAI_API_KEY`, etc. | Shared adapter for OpenAI / DeepSeek / Qwen / Kimi Moonshot / Zhipu GLM / MiniMax / Doubao Volcano Ark / Wenxin (compat mode); they differ only in endpoint and key variable |
-| `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` | Claude Messages API (x-api-key + anthropic-version) |
-| `gemini` | `https://generativelanguage.googleapis.com/v1beta` | `GEMINI_API_KEY` | Google generateContent API |
-| `local_compat` | `http://127.0.0.1:11434/v1` (Ollama) / `http://127.0.0.1:1234/v1` (LM Studio) | none (empty key allowed) | Local OpenAI-compatible endpoint; llama.cpp uses the same protocol |
-| `mock` | no network | none | Built-in deterministic Mock; zero dependencies for demos/tests |
-
-- **Credentials are strictly forbidden from being hardcoded**: `resolve_api_key()` reads provider-specific environment variables first (`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY` / `MINIMAX_API_KEY` / `ARK_API_KEY` / `QIANFAN_API_KEY`, etc.; Anthropic / Gemini as above), then the generic variables `EMOTION_LLM_API_KEY` / `OPENAI_API_KEY`, then the `api_key` config field; online endpoints refuse to issue requests when the key is missing and name the required variable;
-- **HTTP uses the standard-library urllib**, zero third-party runtime dependencies; `TransformersAdapter` reserves a direct transformers connection interface (without introducing a runtime dependency);
-- Configuration sample in `config.example.json` (online + local endpoint placeholders, empty key).
-
-### 6.2 Conversation Pipeline (`conversation_pipeline.py`)
-
-```
-User message → memory retrieval injection (top-k / silence-layer filtering / emotional pollution view) → model generates reply → automatic settling
-  Settling = write to store (original archived) + automatic affect annotation (affect) + capacitor charge (touch) + all-things-are-me absorption (assimilate) + emotional data accumulation (emergent_self.accumulate)
-```
-
-```python
-from emotion_memory.engine import EmotionalMemorySystem
-from emotion_memory.model_adapter import create_adapter
-from emotion_memory.conversation_pipeline import ConversationPipeline
-
-sys = EmotionalMemorySystem("data_dir")
-adapter = create_adapter(load_model_config("config.example.json"), backend="openai_compatible")
-pipe = ConversationPipeline(sys, adapter, top_k=5)
-out = pipe.reply("Python 递归好难懂")   # {"reply": "...", "settle": {...}, "messages": [...]}
-```
-
-### 6.3 Emergent Self Engine (`emergent_self.py`)
-
-What the agent "is" is **not decided by a preset profile**; it emerges from statistics over accumulated emotional data:
-
-- **Valence distribution → personality tendencies**: accumulated valence/arousal statistics generate five-factor personality tendencies (positive valence → agreeable/extraverted, high arousal → high openness);
-- **High-frequency mission memories → mission**: repeatedly appearing high-frequency mission-like text automatically becomes the mission (no template preset);
-- **Strong emotional clusters → self-concepts**: ranked by count × emotional intensity, high-frequency strong-emotion clusters become self-concepts;
-- **Entity co-occurrence → skills**, **high-frequency clusters → interests**;
-- Incrementally updated after every settling; `self_report()` exports the "current self-definition", and `export_json()` + `rebuild_from()` rebuild identity from accumulated data after wake-up.
-
-```python
-sys.emergent_self.accumulate(text="废寝忘食地写代码", affect={"valence": 0.7, "arousal": 0.9}, cluster="编程")
-sys.emergent_self.refresh()
-report = sys.emergent_self.self_report()   # emerged / traits / mission / concepts
-sys.emergent_self.export_json("data_dir/emergent_self.json")
-# Rebuild after wake-up: fresh.emergent_self.rebuild_from("data_dir/emergent_self.json")
-```
-
-### 6.4 Proactive Conversation Loop (`proactive_loop.py`)
-
-Periodically drives the existing `engine.proactive_tick()` (proactive recall + due reminders + capacitor standby pool) → generates an opening topic → calls the model to generate the opener, and automatically settles it as a silent memory; consecutive-utterance cap for protection.
-
-```python
-loop = ProactiveLoop(sys, adapter, interval=3600.0, max_consecutive=1)
-result = loop.maybe_tick()   # {"should_speak": True, "text": "...", "opening": "..."}
-```
-
-### 6.5 Demo and Acceptance
-
-- `demo/demo_v04_llm_pipeline.py`: built-in Mock demonstrates the complete pipeline (write → inject → reply → settle → emotion accumulation → emergent self → wake-up rebuild → proactive chat), supports `--config config.example.json` to connect a real endpoint;
-- New unit tests `tests/test_v04_model_adapter.py` / `test_v04_conversation_pipeline.py` / `test_v04_emergent_self.py`;
-- All existing 106 tests keep passing + v0.4 adds 27 = **133 all green**; still zero third-party runtime dependencies (HTTP uses only standard-library urllib).
-
-## 7. Design Red Lines (Untouchable)
-
-1. **Original text is archived forever but can be emotionally polluted**: `original_text` is never deleted and can never be rewritten by filters (preserving audit traceability); the emotional filter generates a **polluted version** from the original text; retrieval and context injection output the polluted version by default, and `view="original"` recovers the original — humans are contradictory: they remember facts, and they cannot forget the filter either;
-2. High-risk / time-sensitive memories are never silenced; due reminders are auto-injected and require explicit acknowledgement;
-3. Farewell / wake-up / migration all execute deterministically; model free-play is forbidden;
-4. Migration must be verified (SHA-256 + full comparison); failure rejects recovery;
-5. "Remove all limits" = max out the dial, not dismantle the dial; the default setting is low noise and high stability.
-
-### 5.1 Emotional Pollution Mechanism (New in This Release)
-
-- **Dual-layer storage**: every memory persists `original_text` (permanent original archive) and `text` (current polluted view, persistable). Generic update interfaces such as `update_meta` can **never rewrite** `original_text`; only `apply_pollution` / `clear_pollution` change the polluted view through dedicated interfaces;
-- **Polluted version**: beautify/uglify dictionaries + intensity scale (0~2) replace sensitive words / add modifiers; affects the output view only, never touches indexed original text, never breaks recall (benchmark recall stability = 0);
-- **Audit**: every pollution/purification writes to `pollution_history` (time/mode/intensity/before-after text); `view_memory()` gives full traceability;
-- **Default behavior**: `recall()` outputs the polluted version by default (`view="polluted"`); pass `view="original"` explicitly to see the original.
-
-### 5.2 Automatic Affect Annotator (New in This Release)
-
-- When a memory is written without an explicit `affect`, the zero-dependency built-in dictionary computes `(valence, arousal)` automatically;
-- Reserved external model interface: construct `EmotionalMemorySystem(affect_provider=callable)`; it returns `(valence, arousal)` or `None` (fallback to the built-in).
-
-### 5.3 CLI Interactive Terminal (New in This Release)
-
-Common commands: `write` (write, auto-annotation / optional affect/due_at), `recall` (retrieve, optional `--view original` to see original text), `ask` (direct-ask to unlock silent), `status` (stats), `dial` (dial adjustment), `pollute` / `purify` (pollution control), `export` / `import`, `due` (due reminders), `ack` (acknowledge reminder).
-
-### 5.4 Benchmark (New in This Release)
-
-`python -m benchmark.benchmark --memories N --top-k K --seed S` outputs JSON + TXT reports quantifying: **recall hit rate** (four-way comparison: before/after pollution, original view, unrelated queries), **recall stability** (pollution does not break recall), **emotional bias** (beautify/uglify directional accuracy, mean offset), **original-text immutability** (number of entries whose original text is preserved).
+- Runtime dependencies and license statements: [NOTICE.md](NOTICE.md);
+- Ethics statement in clause form: [ETHICS.md](ETHICS.md);
+- Change log: [CHANGELOG.md](CHANGELOG.md).

@@ -1,6 +1,6 @@
-"""benchmark 脚本：量化「回忆命中率 / 情感偏差 / 对照组对比」。
+"""benchmark 脚本：量化「回忆命中率 / 情感偏差 / 对照组对比 / embedding 对照」。
 
-输出 JSON 报告 + 人类可读 txt 报告。零第三方依赖。
+输出 JSON 报告 + 人类可读 txt 报告。零第三方依赖（embedding 对照后端可选）。
 
 指标定义：
   1. 回忆命中率 hit_rate
@@ -19,10 +19,15 @@
      命中率，二者应一致（diff = 0）。
   4. 原文审计：污染后 original_text 必须逐条不变；污染视图必须确实被改变
     （beautify/uglify 文本替换发生比例），报告其统计量。
+  5. 词袋 vs embedding 对照（v0.6）
+     同一批文本-查询配对分别用词袋哈希（默认）与可选 embedding 向量化器
+     跑命中率，输出 delta。embedding 后端默认 mock（确定性 8 维，离线可跑，
+     仅验证接口链路）；指定 sentence_transformers / openai_compat /
+     local_compat / gemini 且不可用时，如实标注 status=unavailable。
 
 用法：
   python -m benchmark.benchmark --memories 20 --top-k 3 --seed 42
-                                --report-path ../output/benchmark_report.json
+  python -m benchmark.benchmark --vectorizer embedding --embedding-backend mock --report-path benchmark/benchmark_report.json
 """
 from __future__ import annotations
 
@@ -34,7 +39,7 @@ import random
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 _SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 if _SRC not in sys.path:
@@ -80,36 +85,47 @@ def _query_from_text(text: str, rng: random.Random) -> str:
 
 
 class BenchmarkRunner:
-    def __init__(self, memories: int, top_k: int, seed: int):
+    def __init__(self, memories: int, top_k: int, seed: int,
+                 vectorizer: str = "bow", embedding_backend: str = "mock"):
         self.rng = random.Random(seed)
         self.memories = memories
         self.top_k = top_k
+        self.vectorizer = vectorizer          # bow | embedding
+        self.embedding_backend = embedding_backend  # mock / openai_compat / ...
 
-    def _fresh_system(self) -> EmotionalMemorySystem:
+    # ------------------------------------------------------------ 构造
+    def _fresh_system(self, vectorizer: str = "bow",
+                      vectorizer_instance: Optional[Any] = None) -> EmotionalMemorySystem:
         base = tempfile.mkdtemp(prefix="emotion_memory_bench_")
         # 命中率对照组使用零噪声刻度盘（noise_temperature=0），
         # 保证振荡评分完全确定，污染前/后严格可比（|Δ|=0 即污染不破坏召回）。
         dial = Dial(noise_temperature=0.0, emotion_gain=0.3,
                     jump_probability=0.05, amplitude=1.0)
+        if vectorizer == "embedding":
+            return EmotionalMemorySystem(base_dir=base, seed=self.rng.randrange(10**6),
+                                         dial=dial, vectorizer=vectorizer_instance)
         return EmotionalMemorySystem(base_dir=base, seed=self.rng.randrange(10**6), dial=dial)
 
-    def _load_seeds(
-        self, sys: EmotionalMemorySystem, n: int
-    ) -> List[Tuple[str, str, float]]:
-        """写入 n 条样例记忆，返回 [(memory_id, original_text, polarity)]。"""
-        out = []
+    def _build_seed_payloads(self, n: int) -> List[Tuple[str, float]]:
+        """构造 n 条可控样本（含情感倾向），供多个向量化后端复用同一批文本。"""
         pool = list(_SAMPLES)
         while len(pool) < n:
             pool = pool + pool
-        pool = self.rng.sample(pool, n)
-        for text, polarity in pool:
+        return self.rng.sample(pool, n)
+
+    def _load_seeds(
+        self, sys: EmotionalMemorySystem, payloads: List[Tuple[str, float]]
+    ) -> List[Tuple[str, str, float]]:
+        """按给定 payloads 写入记忆，返回 [(memory_id, original_text, polarity)]。"""
+        out = []
+        for text, polarity in payloads:
             mem = sys.remember(text, cluster="bench")
             out.append((mem.memory_id, mem.original_text, polarity))
         return out
 
     # ------------------------------------------------------------ 命中率
     def _make_queries(self, seeds: List[Tuple[str, str, float]]) -> List[str]:
-        """从已写入的种子原文一次性生成固定查询组，保证对照组（污染前/后/原文）使用同一批查询。"""
+        """从已写入的种子原文一次性生成固定查询组，保证对照组（污染前/后/原文/embedding）使用同一批查询。"""
         return [_query_from_text(text, self.rng) for _, text, _ in seeds]
 
     def _hit_rate(
@@ -135,6 +151,54 @@ class BenchmarkRunner:
         return {
             "hit_rate": round(hits / n, 4) if n else 0.0,
             "unrelated_hit_rate": round(unrelated_hits / n, 4) if n else 0.0,
+        }
+
+    # ------------------------------------------------------------ embedding 对照
+    def _make_embedding_vectorizer(self):
+        from emotion_memory.embeddings import create_embedding_vectorizer
+        profile: Dict[str, Any] = {}
+        if self.embedding_backend == "sentence_transformers":
+            profile = {
+                "model_name": os.environ.get(
+                    "EMBEDDING_MODEL_NAME",
+                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"),
+                "device": os.environ.get("EMBEDDING_DEVICE", "cpu"),
+            }
+        elif self.embedding_backend in ("openai_compat", "local_compat", "gemini"):
+            profile = {
+                "base_url": os.environ.get("EMBEDDING_BASE_URL", ""),
+                "model": os.environ.get("EMBEDDING_MODEL", ""),
+                "local_mode": self.embedding_backend == "local_compat",
+            }
+        return create_embedding_vectorizer(profile=profile, backend=self.embedding_backend)
+
+    def _embedding_comparison(
+        self, payloads: List[Tuple[str, float]], queries: List[str], bow_hit_rate: float
+    ) -> Dict[str, Any]:
+        """同一批文本-查询用 embedding 向量化器跑命中率；不可用如实标注 unavailable。"""
+        try:
+            vec = self._make_embedding_vectorizer()
+            sys = self._fresh_system(vectorizer="embedding", vectorizer_instance=vec)
+            seeds = self._load_seeds(sys, payloads)
+            now = time.time()
+            emb = self._hit_rate(sys, seeds, queries, view="polluted", now=now)
+        except Exception as exc:
+            return {
+                "status": "unavailable",
+                "backend": self.embedding_backend,
+                "reason": f"{type(exc).__name__}: {exc}",
+                "bow_hit_rate": bow_hit_rate,
+            }
+        return {
+            "status": "ok",
+            "backend": self.embedding_backend,
+            "note": "mock 后端为确定性 8 维嵌入，仅验证 embedding 接口链路可用，"
+                    "不代表真实语义嵌入质量；真实后端不可用时 status=unavailable。"
+                    if self.embedding_backend == "mock" else "",
+            "bow_hit_rate": bow_hit_rate,
+            "embedding_hit_rate": emb["hit_rate"],
+            "embedding_unrelated_hit_rate": emb["unrelated_hit_rate"],
+            "delta": round(emb["hit_rate"] - bow_hit_rate, 4),
         }
 
     # ------------------------------------------------------------ 情感偏差
@@ -179,9 +243,11 @@ class BenchmarkRunner:
             "original_unchanged": original_unchanged,
         }
 
+    # ------------------------------------------------------------ 主流程
     def run(self) -> Dict[str, Any]:
-        sys = self._fresh_system()
-        seeds = self._load_seeds(sys, self.memories)
+        payloads = self._build_seed_payloads(self.memories)
+        sys = self._fresh_system(vectorizer="bow")
+        seeds = self._load_seeds(sys, payloads)
         queries = self._make_queries(seeds)
         now = time.time()  # 固定时间快照，消除振荡相位漂移对命中判定的扰动
 
@@ -194,13 +260,19 @@ class BenchmarkRunner:
 
         shift = self._affect_shift(sys, seeds)
 
+        # v0.6：词袋 vs embedding 对照（同一批文本-查询，仅向量化方式不同）
+        bow_hit = pre["hit_rate"]
+        emb_cmp = self._embedding_comparison(payloads, queries, bow_hit)
+
         report = {
             "meta": {
                 "script": "benchmark.benchmark",
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "memories": self.memories,
                 "top_k": self.top_k,
-                "seed": self.rng.getstate() if False else 0,
+                "seed": 0,  # 保留字段（确定性种子由调用方控制）
+                "vectorizer": self.vectorizer,
+                "embedding_backend": self.embedding_backend,
             },
             "hit_rate": {
                 "pre_pollution": pre,
@@ -209,8 +281,8 @@ class BenchmarkRunner:
                 "recall_stability": round(abs(pre["hit_rate"] - post["hit_rate"]), 4),
             },
             "affect_shift": shift,
+            "embedding_comparison": emb_cmp,
         }
-        report["meta"]["seed"] = 0  # 保留字段（确定性种子由调用方控制）
         return report
 
 
@@ -218,12 +290,14 @@ def format_text(report: Dict[str, Any]) -> str:
     m = report["meta"]
     hr = report["hit_rate"]
     af = report["affect_shift"]
+    ec = report.get("embedding_comparison", {})
     lines = [
         "=" * 62,
         "类人情感记忆系统 benchmark 报告",
         "=" * 62,
         f"记忆条数        : {m['memories']}",
         f"top-k           : {m['top_k']}",
+        f"向量化器        : {m.get('vectorizer', 'bow')}",
         f"时间            : {m['timestamp']}",
         "",
         "【1. 回忆命中率】",
@@ -240,7 +314,24 @@ def format_text(report: Dict[str, Any]) -> str:
         f"  污染视图确实改变比例 : {af['polluted_view_changed_ratio']:.2%}",
         f"  原文保持不变条次    : {af['original_unchanged']} / {m['memories'] * 2}",
         "",
-        "【3. 对照组结论】",
+        "【3. 词袋 vs embedding 对照】",
+        f"  status            : {ec.get('status', 'unavailable')}",
+        f"  backend           : {ec.get('backend', 'mock')}",
+        f"  词袋命中率         : {ec.get('bow_hit_rate', 0.0):.4f}",
+    ]
+    if ec.get("status") == "ok":
+        lines += [
+            f"  embedding 命中率   : {ec.get('embedding_hit_rate', 0.0):.4f}",
+            f"  embedding 无关命中率: {ec.get('embedding_unrelated_hit_rate', 0.0):.4f}",
+            f"  delta(emb - bow)   : {ec.get('delta', 0.0):+.4f}",
+        ]
+        if ec.get("note"):
+            lines.append(f"  注: {ec['note']}")
+    else:
+        lines.append(f"  不可用原因         : {ec.get('reason', '未尝试 embedding 对照')}")
+    lines += [
+        "",
+        "【4. 对照组结论】",
         "  污染只作用于输出视图，索引基于原文 → 命中率应保持稳定；",
         "  无关查询命中率应显著低于目标查询（说明检索有区分度）。",
         "=" * 62,
@@ -253,10 +344,17 @@ def main() -> None:
     ap.add_argument("--memories", type=int, default=20)
     ap.add_argument("--top-k", type=int, default=3)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--report-path", default="benchmark_report.json")
+    ap.add_argument("--vectorizer", choices=["bow", "embedding"], default="bow",
+                    help="主向量化路径：bow=词袋哈希（默认）；embedding=嵌入后端")
+    ap.add_argument("--embedding-backend", choices=[
+        "mock", "openai_compat", "local_compat", "gemini", "sentence_transformers"],
+        default="mock",
+        help="embedding 对照后端（默认 mock=确定性 8 维，离线验证链路）")
+    ap.add_argument("--report-path", default="benchmark/benchmark_report.json")
     ns = ap.parse_args()
 
-    runner = BenchmarkRunner(memories=ns.memories, top_k=ns.top_k, seed=ns.seed)
+    runner = BenchmarkRunner(memories=ns.memories, top_k=ns.top_k, seed=ns.seed,
+                             vectorizer=ns.vectorizer, embedding_backend=ns.embedding_backend)
     report = runner.run()
     report["meta"]["seed"] = ns.seed
     report["meta"]["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")

@@ -62,6 +62,11 @@ class Dial:
     manifold_enabled: bool = False         # 人格流形开关（全谱系性格空间）
     manifold_bifurcation_r: float = 3.6    # 非线性分叉参数 r（确定性混沌区 2.8~4.0）
 
+    # ---- v0.6 可选 embedding 向量化后端（默认关闭，保持零依赖词袋哈希） ----
+    embedding_enabled: bool = False        # embedding 向量化开关（关闭=零依赖词袋）
+    embedding_backend: str = "mock"        # mock / openai_compat / local_compat / gemini / sentence_transformers
+    embedding_profile: Dict[str, Any] = field(default_factory=dict)  # base_url/model/api_key 等
+
     def validate(self) -> "Dial":
         """参数合法性收拢：任何值都不得破坏安全底线。"""
         self.noise_temperature = min(1.0, max(0.0, self.noise_temperature))

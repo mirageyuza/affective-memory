@@ -21,6 +21,17 @@
       "device": "cpu"
     }
   },
+  "embedding": {
+    "enabled": false,
+    "backend": "mock",
+    "profile": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "text-embedding-3-small",
+      "api_key": "",
+      "local_mode": false,
+      "_comment": "可选 v0.6 embedding 向量化增强：backend 可选 mock / openai_compat / local_compat / gemini / sentence_transformers；默认关闭，关闭时仍走零依赖词袋哈希。api_key 严禁硬编码，优先环境变量 EMOTION_LLM_API_KEY / OPENAI_API_KEY。"
+    }
+  },
   "pipeline": {
     "top_k": 5,
     "injected_view": "polluted",

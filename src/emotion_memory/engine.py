@@ -9,13 +9,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .config import Dial
 from .models import AffectLabel, Memory, RankedHit
 from .store.storage import MemoryStore
-from .store.vector_index import AnnVectorIndex
+from .store.vector_index import AnnVectorIndex, BagOfWordsVectorizer
 from .store.graph_index import EntityGraph
 from .algorithms.forgetting import ForgettingCurve
 from .algorithms.hit_function import OscillationBank
@@ -53,13 +54,17 @@ class EmotionalMemorySystem:
         seed: int = 7,
         identity: Optional[IdentityProfile] = None,
         affect_annotator: Optional[ExternalAffectAnnotator] = None,
+        vectorizer: Optional[Any] = None,
     ):
         self.base_dir = base_dir
         os.makedirs(base_dir, exist_ok=True)
         self.dial = (dial or Dial()).validate()
 
         self.store = MemoryStore(os.path.join(base_dir, "memories.jsonl"))
-        self.vec = AnnVectorIndex()
+        # v0.6：向量化器可插拔——默认零依赖词袋哈希；embedding 后端经
+        # Dial.embedding_enabled 开关或显式 vectorizer 参数接入。
+        self._vectorizer = vectorizer if vectorizer is not None else self._make_vectorizer()
+        self.vec = AnnVectorIndex(vectorizer=self._vectorizer)
         self.graph = EntityGraph()
         self.bank = OscillationBank(dial=self.dial, seed=seed)
         self.curve = ForgettingCurve()
@@ -810,12 +815,30 @@ class EmotionalMemorySystem:
         }
 
     # ------------------------------------------------------------ 内部
+    def _make_vectorizer(self) -> Any:
+        """按 Dial 配置构造向量化器；embedding 后端不可用时回退零依赖词袋。"""
+        if not self.dial.embedding_enabled:
+            return BagOfWordsVectorizer()
+        try:
+            from .embeddings import create_embedding_vectorizer
+            return create_embedding_vectorizer(
+                profile=dict(self.dial.embedding_profile),
+                backend=self.dial.embedding_backend,
+            )
+        except Exception as exc:
+            print(
+                f"[warn] embedding 后端不可用（{type(exc).__name__}: {exc}），"
+                f"回退零依赖词袋哈希向量化。",
+                file=sys.stderr,
+            )
+            return BagOfWordsVectorizer()
+
     def _rebuild_indexes(self) -> None:
         """重启后从原文存储重建向量索引与图索引（内存只驻留索引）。
 
         索引用 original_text 构建，保证情感污染不改变召回结果。
         """
-        self.vec = AnnVectorIndex()
+        self.vec = AnnVectorIndex(vectorizer=self._vectorizer)
         self.graph = EntityGraph()
         for m in self.store.all():
             self.vec.insert(m.memory_id, m.original_text or m.text, m.entities)

@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "script": "benchmark.benchmark",
+    "timestamp": "2026-10-31 11:50:41",
+    "memories": 300,
+    "top_k": 5,
+    "seed": 3,
+    "vectorizer": "bow",
+    "embedding_backend": "mock"
+  },
+  "hit_rate": {
+    "pre_pollution": {
+      "hit_rate": 0.3267,
+      "unrelated_hit_rate": 0.02
+    },
+    "post_pollution": {
+      "hit_rate": 0.3267,
+      "unrelated_hit_rate": 0.02
+    },
+    "original_view": {
+      "hit_rate": 0.3267,
+      "unrelated_hit_rate": 0.02
+    },
+    "recall_stability": 0.0
+  },
+  "affect_shift": {
+    "beautify_direction_ok": 0.8967,
+    "uglify_direction_ok": 0.8033,
+    "mean_abs_shift": 1.1473,
+    "polluted_view_changed_ratio": 1.0,
+    "original_unchanged": 600
+  },
+  "embedding_comparison": {
+    "status": "ok",
+    "backend": "mock",
+    "note": "mock 后端为确定性 8 维嵌入，仅验证 embedding 接口链路可用，不代表真实语义嵌入质量；真实后端不可用时 status=unavailable。",
+    "bow_hit_rate": 0.3267,
+    "embedding_hit_rate": 0.0133,
+    "embedding_unrelated_hit_rate": 0.0,
+    "delta": -0.3134
+  }
+}

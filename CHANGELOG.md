@@ -2,6 +2,19 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## v0.6.0 — 可选 embedding 向量化增强、benchmark 对照升级、污染影响实验
+
+- 新增 `src/emotion_memory/embeddings.py`：可选 `EmbeddingVectorizer`，通过 OpenAI 兼容 embed API（复用 `model_adapter.embed()`）或本地 sentence-transformers 接入；与 `BagOfWordsVectorizer` 同接口（vectorize / dimension），默认仍走零依赖词袋哈希，embedding 为可插拔增强，不破坏现有接口与单测。
+- `config.py` 的 `Dial` 新增 `embedding_enabled / embedding_backend / embedding_profile` 开关（默认关闭）；`engine.py` 支持 `vectorizer=` 注入，不可用时自动回退词袋并告警。
+- 新增 `config.example.json` 的 `embedding` 配置段（enabled / backend / profile，api_key 严禁硬编码）。
+- `benchmark/benchmark.py` 升级：新增「词袋 vs embedding」对照维度，真实结果写入 `benchmark/benchmark_report.json`；词袋基线命中率约 0.255 如实记录；embedding 后端不可用时如实标注 `status=unavailable`。
+- 新增 demo：`demo/demo_pollution_llm_effect.py`（污染前后喂给 LLM 的态度漂移实验，内置 Mock 可离线运行，`--config` 接真实模型）。
+- 归档超前代码：`demo/demo_v06_marvis_integration.py`（Marvis 集成 demo）、`model_adapter` 多 Provider 注册表（OpenAI 兼容全家 / Anthropic / Gemini / 本地端点）。
+- 新增单测 12 项：`tests/test_v06_embeddings.py`。
+- 测试数演进：225 → 235（`unittest discover` 实测 235 项，全绿）。
+- 版本对齐：`pyproject.toml` version = 0.6.0。
+- 文档同步：重写 `README.md` / `README_EN.md` 至 v0.6 双语对齐，补充 embedding 可选增强、词袋 vs embedding 对照基准与污染影响实验说明；`config.example.json` 同步新增 `embedding` 配置段。
+
 ## v0.5.0 — 物理四定律与人格流形
 
 - 新增 `src/emotion_memory/conservation.py`：情感守恒，全局情感预算约束，无源注入抛错。
