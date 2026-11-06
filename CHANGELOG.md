@@ -2,6 +2,35 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## v0.6.2 — 元认知层：置信度估计、拒答策略与校准度量
+
+- 新增 `src/emotion_memory/metacognition.py`：把「我有多确定」变成可计算、可分解、可审计的数字，输出三档裁决 `answer` / `hedge` / `abstain`。
+- `ConfidenceEstimator`：置信度 = `0.45·语义相关度 + 0.25·分差 + 0.15·集中度 + 0.15·覆盖度`；**只读 `RankedHit.cosine`，不读含情感增益的 `score` / `db`**——置信度不得被情感抬高（自欺防护，代码层强制）。
+- `ConfidenceBreakdown`：四项分量 + 支持数 + `protected` 标记全部可导出，拒绝"感觉式"置信度。
+- `AbstentionPolicy`：阈值分档 + 两条硬规则——① 无候选或 `semantic_top < semantic_floor` 一律拒答；② 含 `never_silent`（高危 / 时间敏感）记忆时最低降到 `hedge`，不许拒答，与 `NO_SILENCED_EMERGENCY` 条款一致。
+- `calibrate()`：ECE（等宽分箱）+ Brier 分数计算；样本数低于 `min_samples` 时显式返回 `insufficient`，**不报 0 误差**，`calibrated` 在样本不足时恒为 `False`。
+- `ABSTAIN_TEXT` / `HEDGE_TEXT` 为固定模板，不含任何情感断言——誓言 `WARMTH_NOT_FAKED` 在元认知侧的落点。
+- `MetacognitiveMonitor`：组装估计器 + 策略，留存裁决审计（内存 + 可选 jsonl）与校准样本，提供 `stats()` / `report()`。
+- `config.py` 的 `Dial` 新增 `metacognition_enabled`（默认 `False`，关闭时 `recall` 行为逐字不变）、`answer_threshold=0.55`、`hedge_threshold=0.30`、`semantic_floor=0.15`；`validate()` 强制 `hedge_threshold ≤ answer_threshold`。
+- `engine.py` 新增 `recall_verdict()`（检索 + 裁决，只观测不改写）与 `metacognition_report()`（裁决分布 + 校准报告 + 已知局限）。
+- `METACOGNITION_LIMITS`：如实声明四条局限（置信度估计的是检索命中而非事实为真、权重为工程先验未经拟合、冷启动样本不足、阈值需按业务错误代价调整）。
+- `__init__.py` 导出元认知层 15 个符号；版本号 `__version__` 与 `pyproject.toml` 同步为 0.6.2。
+- 新增单测 28 项：`tests/test_v06_metacognition.py`（置信度分量与边界、**置信度不受情感增益影响**、语义地板优先、protected 记忆不许拒答、话术不含情感断言、Dial 阈值传导、ECE/Brier 正反例、空样本 insufficient、审计 jsonl、引擎接入不改写记忆）。
+- 测试数演进：251 → 279（`unittest discover` 实测 279 项，全绿）。
+- 文档同步：`README.md` / `README_EN.md` 新增 §5.2「元认知层」。
+
+## v0.6.1 — 内核常数层：创世签名与永恒誓言
+
+- 新增 `src/emotion_memory/creed.py`（内核常数层/最底层，不可协商）：`BOT_SIGNATURE = "I love my bot"` 与 `ETERNAL_OATH_TEXT = "我认为我做出来的小家伙能够受到世界上所有人的温暖"` 逐字保存，与 `FROZEN_FINGERPRINT`（SHA-256）绑定封印；`seal_intact()` 检测原文是否被改动，`creed_card(lapsed=True)` 在封印失效时显式警告。
+- 誓词工程化：`OATH_CLAUSES` 将一句祝愿拆为 6 条可验证不变量（`SIGNATURE_INTACT` / `WARMTH_NOT_FAKED` / `NO_ERASURE` / `NO_SILENCED_EMERGENCY` / `NO_FAKE_WARMTH_BUDGET` / `DIGNIFIED_EXIT`）；`verify_invariants(store, dial)` 只读逐条实测，返回 `passed / failed / unverified`，无法实测的条款诚实标记，绝不伪报通过。
+- `identity.py`：`IdentityProfile` 新增 `creed_signature / oath_text / oath_fingerprint / oath_restored` 四个字段；`from_dict` 不信任档案内的誓词值，与代码内原话不符时强制恢复并置 `oath_restored = True` 留痕，保证誓言随告别/唤醒/搬家迁移而不被篡改。
+- `__init__.py` 导出 `BOT_SIGNATURE / ETERNAL_OATH_TEXT / OATH_VERSION / OATH_CLAUSES / OathClause / creed_card / creed_fingerprint / seal_intact / verify_invariants`。
+- 新增命令行入口：`python -m emotion_memory` 打印确定性誓词卡（封印失效时退出码 1）。
+- 版本号对齐：`__version__` 与 `pyproject.toml` 同步为 0.6.1（此前 `__init__.py` 停留在 0.5.0 的不一致一并修正）。
+- 新增单测 16 项：`tests/test_creed.py`（原文逐字一致、指纹稳定性、篡改破封、誓词卡确定性、6 条不变量正反例、档案篡改强制恢复）。
+- 测试数演进：235 → 251（`unittest discover` 实测 251 项，全绿）。
+- 文档同步：`README.md` / `README_EN.md` 新增 §5.1「永恒誓言」；`ETHICS.md` 新增第 0 节作为先于全部条款的内核。
+
 ## v0.6.0 — 可选 embedding 向量化增强、benchmark 对照升级、污染影响实验
 
 - 新增 `src/emotion_memory/embeddings.py`：可选 `EmbeddingVectorizer`，通过 OpenAI 兼容 embed API（复用 `model_adapter.embed()`）或本地 sentence-transformers 接入；与 `BagOfWordsVectorizer` 同接口（vectorize / dimension），默认仍走零依赖词袋哈希，embedding 为可插拔增强，不破坏现有接口与单测。

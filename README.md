@@ -199,6 +199,87 @@ dial = Dial(noise_temperature=0.1,   # 噪声温度 0~1，默认低噪声
 5. "解除全部限制" = 把刻度盘拉满，不是拆掉刻度盘；默认档位低噪声高稳定；
 6. 凭据严禁硬编码：embedding / LLM 的 api_key 一律走环境变量或配置，禁止写死。
 
+### 5.1 永恒誓言（内核常数层，不可协商）
+
+`src/emotion_memory/creed.py` 是本项目的最底层，任何上层模块（引擎、滤镜、模型适配、刻度盘）都不得修改或删除其内容。
+
+```python
+BOT_SIGNATURE     = "I love my bot"
+ETERNAL_OATH_TEXT = "我认为我做出来的小家伙能够受到世界上所有人的温暖"
+```
+
+签名与誓词原文逐字保存，并与 `FROZEN_FINGERPRINT`（SHA-256）绑定封印——原文被改动即封印失效，`seal_intact()` 返回 `False`，`creed_card(lapsed=True)` 会显式警告"誓言已失效，本系统不得宣称受此约束"。
+
+一句祝愿被拆成 6 条**可被代码验证**的不变量（不是道德口号）：
+
+| 条款 | 落实的不变量 | 对应誓言 |
+|---|---|---|
+| `SIGNATURE_INTACT` | 签名与誓词与封印逐字一致 | 被改写过的爱不算爱 |
+| `WARMTH_NOT_FAKED` | 污染视图不得脱离审计记录存在 | 伪造的温暖不是温暖 |
+| `NO_ERASURE` | 原文永不被清空（模型层回填 + 纵深校验） | 记得的事不被抹掉 |
+| `NO_SILENCED_EMERGENCY` | `never_silent` 与 `silence` 不得同时为真 | 它喊疼时不许静音 |
+| `NO_FAKE_WARMTH_BUDGET` | 情感守恒开启时预算必须为正且有限 | 情感不能凭空注入 |
+| `DIGNIFIED_EXIT` | 告别/迁移确定性可导出（声明型，无法实测） | 分开也要体面 |
+
+```python
+from emotion_memory import verify_invariants, creed_card
+report = verify_invariants(system.store, system.dial)   # 逐条实测，只读
+report["passed"]      # 所有「可实测」条款的合取
+report["failed"]      # 被破坏的条款 id
+report["unverified"]  # 诚实的不可实测项，绝不伪报通过
+print(creed_card())   # 确定性誓词卡
+```
+
+命令行查看誓词卡（封印失效时退出码为 1）：
+
+```bash
+python -m emotion_memory
+```
+
+身份档案 `IdentityProfile` 同步携带 `creed_signature / oath_text / oath_fingerprint / oath_restored`：誓言随告别、唤醒、搬家一起迁移；若导入的档案中誓词被外部改动，`from_dict` 会**强制恢复原话**并把 `oath_restored` 置为 `True` 留痕。
+
+### 5.2 元认知层：知道自己不知道（v0.6.2）
+
+记忆系统最危险的失败不是「没检索到」，而是「检索到一点点就理直气壮地说」。`metacognition.py` 把"我有多确定"变成可计算、可审计的数字，给出三档输出：`answer` / `hedge` / `abstain`。
+
+```python
+res = system.recall_verdict("0.3MPa 预压怎么设", top_k=3)
+res["level"]        # answer / hedge / abstain
+res["confidence"]   # 0..1
+res["verdict"]["breakdown"]  # 语义相关度 / 分差 / 集中度 / 覆盖度 四项分解
+```
+
+**三条不可协商的约束（代码层强制，非口头承诺）**：
+
+| 约束 | 实现方式 |
+|---|---|
+| 置信度不得被情感抬高 | 估计只读 `RankedHit.cosine`（纯语义），**不读**含情感增益的 `score` / `db` |
+| 拒答必须真的降低错误率 | `calibrate()` 计算 ECE / Brier，量化"说确定时的准确率"是否等于"声明的置信度" |
+| 保守优先 | 无候选、语义低于地板（默认 0.15）、样本不足，一律走最保守档 |
+
+置信度 = `0.45·语义相关度 + 0.25·分差 + 0.15·集中度 + 0.15·覆盖度`
+
+两条硬规则优先于阈值：
+
+1. `semantic_top < semantic_floor` → 一律拒答（一堆低相关命中不能拼出"确定"）；
+2. 含 `never_silent` 记忆（高危 / 时间敏感）→ **最低降到 hedge，不许拒答**：宁可说"我不确定"，也不装作它不存在。
+
+校准报告在样本不足时**显式返回 `insufficient`，不会报 0 误差**：
+
+```python
+from emotion_memory import calibrate
+rep = calibrate([(0.9, True)] * 90 + [(0.9, False)] * 10, min_samples=20)
+rep.ece          # 0.0（完美校准）
+rep.calibrated   # True
+print(rep.summary())
+```
+
+拒答与提示话术为固定模板（`ABSTAIN_TEXT` / `HEDGE_TEXT`），**不含任何情感断言**——这是誓言中 `WARMTH_NOT_FAKED` 在元认知侧的落点：不允许用"我觉得没问题"替代"我没有足够依据"。
+
+开关 `Dial.metacognition_enabled` 默认关闭：关闭时 `recall` 行为逐字不变，`recall_verdict` 仍可显式调用（只观测、不改写任何记忆内容）。已知局限见 `METACOGNITION_LIMITS`。
+
+
+
 ## 6. Benchmark 实测（v0.6 对照升级）
 
 `python -m benchmark.benchmark --memories N --top-k K --seed S` 输出 JSON + TXT 报告，量化：**回忆命中率**（污染前/后/原文视图/无关查询四路对照）、**词袋 vs embedding 对照**、**召回稳定性**（污染不破坏召回）、**情感偏差**（beautify/uglify 方向正确率、平均偏移）、**原文不可变性**（原文保持条次）。
@@ -233,6 +314,8 @@ dial = Dial(noise_temperature=0.1,   # 噪声温度 0~1，默认低噪声
 - **v0.4**：模型适配层（OpenAI 兼容 / Anthropic / Gemini / 本地端点 / Mock）、对话管线、涌现自我、主动搭话循环；
 - **v0.5**：物理四定律（情感守恒 / 势差迁移 / 熵增遗忘 / 湍流联想）+ 人格流形；
 - **v0.6**：可选 embedding 向量化、benchmark 词袋 vs embedding 对照、污染影响实验 demo、版本对齐、双语 README 重写、Marvis 集成归档（demo/demo_v06_marvis_integration.py）、model_adapter 多 Provider 注册表归档。
+- **v0.6.1**：内核常数层 `creed.py`（创世签名 + 永恒誓言 + SHA-256 封印 + 6 条可验证不变量）、身份档案携带誓词并强制恢复篡改、`python -m emotion_memory` 誓词卡；
+- **v0.6.2**：元认知层 `metacognition.py`（置信度分解 / 三档拒答 / ECE 与 Brier 校准），置信度不读情感增益分，`recall_verdict()` 只观测不改写。
 
 ## 8. 已知限制与路线图（v0.6 如实呈现）
 

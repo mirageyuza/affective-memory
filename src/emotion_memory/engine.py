@@ -42,6 +42,20 @@ from .potential_transfer import PotentialTransfer
 from .entropic_forgetting import EntropicForgetting
 from .turbulent_association import TurbulenceAssociator
 from .personality_manifold import PersonalityManifold, EnvironmentVector
+# ---- v0.6.2 元认知层 ----
+from .metacognition import (
+    LEVEL_ANSWER,
+    LEVEL_HEDGE,
+    LEVEL_ABSTAIN,
+    METACOGNITION_LIMITS,
+    AbstentionPolicy,
+    CalibrationReport,
+    ConfidenceBreakdown,
+    ConfidenceEstimator,
+    MetacognitiveMonitor,
+    RecallVerdict,
+    calibrate,
+)
 
 
 class EmotionalMemorySystem:
@@ -128,6 +142,14 @@ class EmotionalMemorySystem:
         )
         # 人格流形：全谱系性格空间 + 环境向量注入 + 非线性分叉（确定性混沌）
         self.manifold = PersonalityManifold(seed=seed, r=self.dial.manifold_bifurcation_r)
+
+        # ---- v0.6.2 元认知层：置信度 / 拒答 / 校准 ----
+        # 只观测不改写：recall 行为不变，仅在显式调用 recall_verdict 时给出裁决
+        self.metacognition = MetacognitiveMonitor(
+            dialect=self.dial,
+            audit_path=os.path.join(base_dir, "metacognition_audit.jsonl")
+            if self.dial.metacognition_enabled else None,
+        )
         self._boot_at = time.time()
 
         # 启动时重建索引 + 推进遗忘曲线
@@ -246,7 +268,61 @@ class EmotionalMemorySystem:
                 self.store.update_meta(h.memory.memory_id, charge=h.memory.charge)
         return hits
 
-    # ------------------------------------------------------------ 情感污染（v0.2）
+    # ------------------------------------------------------------ 元认知（v0.6.2）
+    def recall_verdict(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        query_entities: Optional[Sequence[str]] = None,
+        now: Optional[float] = None,
+        view: str = "polluted",
+        record: bool = False,
+    ) -> Dict[str, Any]:
+        """检索 + 元认知裁决：返回命中、置信度分解、三档结论。
+
+        只观测、不改写：本方法不修改任何记忆内容，`recall` 行为完全不变。
+        注意：会执行一次完整 recall，电容模型开启时同样会消耗一次放电。
+
+        record=True 时把本次裁决写入审计（内存 + 开启开关时的 jsonl）。
+        """
+        k = top_k if top_k is not None else self.dial.top_k
+        hits = self.recall(
+            query=query,
+            top_k=k,
+            query_entities=query_entities,
+            now=now,
+            view=view,
+        )
+        verdict = self.metacognition.verdict(hits, top_k=k)
+        if record:
+            self.metacognition.record_decision(verdict, query=query)
+        return {
+            "query": query,
+            "verdict": verdict.as_dict(),
+            "level": verdict.level,
+            "confidence": verdict.confidence,
+            "should_abstain": verdict.should_abstain,
+            "text": verdict.text,
+            "hits": [
+                {
+                    "memory_id": h.memory.memory_id,
+                    "display_text": h.display_text or h.memory.text,
+                    "score": h.score,
+                    "cosine": h.cosine,
+                }
+                for h in hits
+            ],
+        }
+
+    def metacognition_report(self, n_bins: int = 10, tolerance: float = 0.08) -> Dict[str, Any]:
+        """元认知健康度：裁决分布 + 校准报告（样本不足会如实标注）。"""
+        return {
+            "stats": self.metacognition.stats(),
+            "calibration": self.metacognition.report(n_bins=n_bins, tolerance=tolerance).as_dict(),
+            "limits": list(METACOGNITION_LIMITS),
+        }
+
+
     def apply_pollution(
         self,
         memory_id: str,

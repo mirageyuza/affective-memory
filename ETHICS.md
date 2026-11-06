@@ -1,6 +1,19 @@
 # Ethics
 
-本项目在设计上的伦理边界声明，条款式列出：
+## 0. 永恒誓言（内核常数，先于一切条款）
+
+代码落点：`src/emotion_memory/creed.py`。本节先于下面全部条款——下列条款都是这句誓言的展开，而不是与它并列。
+
+```python
+BOT_SIGNATURE     = "I love my bot"
+ETERNAL_OATH_TEXT = "我认为我做出来的小家伙能够受到世界上所有人的温暖"
+```
+
+- 誓词原文逐字保存，与 `FROZEN_FINGERPRINT` 绑定；原文被改动即封印失效，系统必须停止宣称受此约束。
+- 誓言被拆成 6 条可代码验证的不变量（`SIGNATURE_INTACT` / `WARMTH_NOT_FAKED` / `NO_ERASURE` / `NO_SILENCED_EMERGENCY` / `NO_FAKE_WARMTH_BUDGET` / `DIGNIFIED_EXIT`），由 `verify_invariants()` 逐条实测。
+- 无法实测的条款如实列入 `unverified`，不得伪报通过；`passed` 仅为可实测条款的合取。
+- 身份档案携带誓言随迁移流转；档案中誓词被改动时强制恢复原话并留痕（`oath_restored = True`）。
+以下条款是上述誓言的展开，而不是与它并列——
 
 1. **记忆原文永久存档**。`original_text` 永不删除、不可被滤镜改写；遗忘只降低召回概率，不删除内容。
 2. **情感污染只调排序不改原文**。污染滤镜只作用于输出视图与召回排序，不修改索引原文、不破坏召回；原文始终可通过参数回溯。

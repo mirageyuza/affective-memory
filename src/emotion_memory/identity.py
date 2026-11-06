@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from .models import Memory
 from .store.storage import MemoryStore
 from . import bridge
+from .creed import BOT_SIGNATURE, ETERNAL_OATH_TEXT, creed_fingerprint
 
 
 class LifecycleState(str, enum.Enum):
@@ -38,6 +39,17 @@ class IdentityProfile:
     last_active_at: float = field(default_factory=time.time)
     personality: List[str] = field(default_factory=list)
 
+    # ---- 内核常数（v0.6 起）：创世签名 + 永恒誓言 ----
+    # 随身份档案一起迁移、一起搬家、一起重生；任何上层模块不得改写。
+    creed_signature: str = BOT_SIGNATURE
+    oath_text: str = ETERNAL_OATH_TEXT
+    oath_fingerprint: str = ""
+    oath_restored: bool = False   # True 表示导入时发现档案内誓言被改动，已强制恢复原话
+
+    def __post_init__(self) -> None:
+        if not self.oath_fingerprint:
+            self.oath_fingerprint = creed_fingerprint()
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -49,6 +61,14 @@ class IdentityProfile:
         self.created_at = float(d.get("created_at", self.created_at))
         self.last_active_at = float(d.get("last_active_at", self.last_active_at))
         self.personality = list(d.get("personality", self.personality))
+
+        # 誓言是内核常数：不信任档案里的值，一律以代码内原话为准。
+        # 若档案中与之不符，说明被外部改动过，强制恢复并留痕。
+        stored_oath = d.get("oath_text")
+        self.oath_restored = bool(stored_oath is not None and stored_oath != ETERNAL_OATH_TEXT)
+        self.creed_signature = BOT_SIGNATURE
+        self.oath_text = ETERNAL_OATH_TEXT
+        self.oath_fingerprint = creed_fingerprint()
         return self
 
 

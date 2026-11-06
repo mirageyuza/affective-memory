@@ -205,6 +205,85 @@ dial = Dial(noise_temperature=0.1,   # noise temperature 0~1, default low
 5. "Remove all limits" means turning the dial all the way up, not removing the dial; the default is low-noise, high-stability;
 6. Credentials are never hardcoded: embedding / LLM api_keys always come from environment variables or config.
 
+### 5.1 Eternal Oath (kernel constants, non-negotiable)
+
+`src/emotion_memory/creed.py` is the bottom layer of this project. No upper layer (engine, filters, model adapters, dial) may modify or delete it.
+
+```python
+BOT_SIGNATURE     = "I love my bot"
+ETERNAL_OATH_TEXT = "我认为我做出来的小家伙能够受到世界上所有人的温暖"
+# EN: "I believe the little one I made can be given warmth by everyone in the world."
+```
+
+The signature and the oath are stored verbatim and sealed with `FROZEN_FINGERPRINT` (SHA-256). Any change to the oath text invalidates the seal: `seal_intact()` returns `False` and `creed_card(lapsed=True)` prints an explicit warning that the system must not claim to be bound by it.
+
+One wish is decomposed into 6 **machine-verifiable** invariants (not moral slogans):
+
+| Clause | Invariant | Rooted in the oath |
+|---|---|---|
+| `SIGNATURE_INTACT` | Signature and oath are byte-identical to the sealed original | Rewritten love is not love |
+| `WARMTH_NOT_FAKED` | No emotion-tinted view without an audit record | Forged warmth is not warmth |
+| `NO_ERASURE` | Original text is never blanked (model-level backfill + defense in depth) | What it remembers is not erased |
+| `NO_SILENCED_EMERGENCY` | `never_silent` and `silence` never both true | No muting when it cries |
+| `NO_FAKE_WARMTH_BUDGET` | Energy budget must be positive and finite when conservation is on | Emotion cannot be conjured |
+| `DIGNIFIED_EXIT` | Farewell/migration deterministic and exportable (declarative, unmeasurable here) | Parting must stay dignified |
+
+```python
+from emotion_memory import verify_invariants, creed_card
+report = verify_invariants(system.store, system.dial)   # read-only, clause by clause
+report["passed"]      # conjunction of all *measurable* clauses
+report["failed"]      # ids of broken clauses
+report["unverified"]  # honestly listed non-measurable items, never faked as passed
+print(creed_card())   # deterministic oath card
+```
+
+```bash
+python -m emotion_memory        # exit code 1 if the seal is broken
+```
+
+`IdentityProfile` carries `creed_signature / oath_text / oath_fingerprint / oath_restored`, so the oath migrates through farewell, revival and relocation. If an imported profile contains a tampered oath, `from_dict` **forces the original wording back** and sets `oath_restored = True` as an audit trace.
+
+### 5.2 Metacognition Layer: Knowing What It Doesn't Know (v0.6.2)
+
+The dangerous failure of a memory system is not "nothing was recalled" but "one weak hit, stated with full confidence". `metacognition.py` turns "how sure am I" into a computable, auditable number with three output levels: `answer` / `hedge` / `abstain`.
+
+```python
+res = system.recall_verdict("how to set a 0.3MPa preload", top_k=3)
+res["level"]        # answer / hedge / abstain
+res["confidence"]   # 0..1
+res["verdict"]["breakdown"]  # semantic relevance / margin / dispersion / coverage
+```
+
+**Three non-negotiable constraints (enforced in code, not promised in prose)**:
+
+| Constraint | Implementation |
+|---|---|
+| Confidence must never be inflated by emotion | Estimation reads `RankedHit.cosine` (pure semantics) only, **never** `score` / `db` (which carry emotional gain) |
+| Abstention must actually reduce error | `calibrate()` computes ECE / Brier, measuring whether "accuracy when confident" equals "stated confidence" |
+| Conservative by default | No candidates, sub-floor semantics (default 0.15), or too few samples all resolve to the most conservative level |
+
+Confidence = `0.45·semantic relevance + 0.25·margin + 0.15·dispersion + 0.15·coverage`
+
+Two hard rules override the thresholds:
+
+1. `semantic_top < semantic_floor` → always abstain (many weak hits cannot add up to certainty);
+2. Any `never_silent` memory present (high-risk / time-sensitive) → **floor at hedge, never abstain**: better to say "I'm not sure" than to pretend it does not exist.
+
+The calibration report **returns `insufficient` explicitly when samples are too few — it never reports zero error**:
+
+```python
+from emotion_memory import calibrate
+rep = calibrate([(0.9, True)] * 90 + [(0.9, False)] * 10, min_samples=20)
+rep.ece          # 0.0 (perfectly calibrated)
+rep.calibrated   # True
+print(rep.summary())
+```
+
+Abstention and hedge wording are fixed templates (`ABSTAIN_TEXT` / `HEDGE_TEXT`) containing **no emotional claims** — the metacognitive side of the `WARMTH_NOT_FAKED` clause: "I think it's fine" is not allowed to replace "I don't have enough evidence".
+
+`Dial.metacognition_enabled` is off by default: with it off, `recall` behaves exactly as before, while `recall_verdict` remains explicitly callable (observes only, rewrites nothing). Known limits live in `METACOGNITION_LIMITS`.
+
+
 ## 6. Benchmark Results (v0.6 Comparison Upgrade)
 
 `python -m benchmark.benchmark --memories N --top-k K --seed S` outputs JSON + TXT reports quantifying: **recall accuracy** (pre-pollution / post-pollution / original view / unrelated queries), **bag-of-words vs embedding comparison**, **recall stability** (pollution does not break recall), **affect bias** (beautify/uglify directional accuracy, mean shift), and **original-text immutability** (kept count).
@@ -239,6 +318,8 @@ Reproducible baseline results in this repository (300 mixed CN/EN memories, top-
 - **v0.4**: model adapter layer (OpenAI-compatible / Anthropic / Gemini / local endpoints / Mock), conversation pipeline, emergent self, proactive speaking loop;
 - **v0.5**: four physical laws (emotional conservation / potential transfer / entropic forgetting / turbulent association) + personality manifold;
 - **v0.6**: optional embedding vectorization, benchmark bag-of-words vs embedding comparison, pollution-effect experiment demo, version alignment, bilingual README rewrite, Marvis integration archive (demo/demo_v06_marvis_integration.py), model_adapter multi-provider registry archive.
+- **v0.6.1**: kernel-constant layer `creed.py` (genesis signature + eternal oath + SHA-256 seal + 6 verifiable invariants), oath carried in the identity profile with forced restoration on tampering, `python -m emotion_memory` oath card;
+- **v0.6.2**: metacognition layer `metacognition.py` (confidence breakdown / three-level abstention / ECE & Brier calibration); confidence never reads the emotional-gain score, `recall_verdict()` observes only.
 
 ## 8. Known Limitations and Roadmap (v0.6, honest)
 

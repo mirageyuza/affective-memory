@@ -62,6 +62,12 @@ class Dial:
     manifold_enabled: bool = False         # 人格流形开关（全谱系性格空间）
     manifold_bifurcation_r: float = 3.6    # 非线性分叉参数 r（确定性混沌区 2.8~4.0）
 
+    # ---- v0.6.2 元认知层：置信度 / 拒答 / 校准（默认关闭，保持既有行为） ----
+    metacognition_enabled: bool = False    # 元认知裁决开关（关闭=recall 行为完全不变）
+    answer_threshold: float = 0.55          # 置信度 ≥ 该值：直接采用（answer）
+    hedge_threshold: float = 0.30           # 置信度 ≥ 该值：采用但标注不确定（hedge）
+    semantic_floor: float = 0.15            # top1 语义相关度下限，低于则强制拒答
+
     # ---- v0.6 可选 embedding 向量化后端（默认关闭，保持零依赖词袋哈希） ----
     embedding_enabled: bool = False        # embedding 向量化开关（关闭=零依赖词袋）
     embedding_backend: str = "mock"        # mock / openai_compat / local_compat / gemini / sentence_transformers
@@ -89,6 +95,10 @@ class Dial:
         self.turbulence_decay = min(1.0, max(0.05, float(self.turbulence_decay)))
         self.turbulence_max_depth = max(1, min(10, int(self.turbulence_max_depth)))
         self.manifold_bifurcation_r = min(4.0, max(2.8, float(self.manifold_bifurcation_r)))
+        # ---- v0.6.2 元认知约束：阈值必须保持 hedge ≤ answer，地板不得压掉全部候选 ----
+        self.hedge_threshold = min(1.0, max(0.0, float(self.hedge_threshold)))
+        self.answer_threshold = min(0.99, max(self.hedge_threshold, float(self.answer_threshold)))
+        self.semantic_floor = min(0.9, max(0.0, float(self.semantic_floor)))
         return self
 
     def to_dict(self) -> Dict[str, Any]:
