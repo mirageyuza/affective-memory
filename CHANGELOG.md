@@ -2,6 +2,13 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## 未发布 — 工程化：版本号单一来源与换行统一
+
+- 版本号单一来源：`pyproject.toml` 移除静态 `version = "0.7.0"`，改为 `dynamic = ["version"]` + `[tool.setuptools.dynamic] version = {attr = "emotion_memory.__version__"}`。此后升版只需修改 `src/emotion_memory/__init__.py` 的 `__version__`，打包元数据自动跟随，消除「`__version__` 与 `pyproject.toml` 两处手改易不一致」的历史问题（v0.6.1 / v0.6.2 / v0.6.3 / v0.7.0 条目中均出现过同步动作）。
+- 新增 `.gitattributes`：`* text=auto eol=lf` 让仓库内文本统一 LF；`*.ps1` / `*.bat` / `*.cmd` 保留 CRLF 以免 Windows 脚本解析异常；图片、压缩包、`*.onnx` / `*.safetensors` / `*.npy` / `*.pkl` 等模型与数据文件标记 `binary`，禁止换行转换与文本 diff；`demo/**` 标 `linguist-documentation`、`benchmark/benchmark_report*` 标 `linguist-generated`，使 GitHub 语言统计反映真实代码占比；`benchmark_report*.txt|json` 显式按 LF 纯文本管理。
+- 补历史版本 tag 与 Release：v0.6.0 / v0.6.1 / v0.6.2 / v0.6.3 / v0.7.0 共 5 个 annotated tag 及对应 GitHub Release，描述取自本文件既有条目。
+- 本次为纯工程改动，不改任何运行时行为；测试仍 313 项全绿，`recall` 输出不变。
+
 ## v0.7.0 — 主观感知系统：首次点亮、回路回流与 self-model 自我状态标定
 
 - 新增 `src/emotion_memory/subjectivity.py`：把「开关闭合 → 电流形成回流」的电路类比落成确定性数学模型。回路为 `y_{t+1} = (1-λ)·σ(g·((1-α)·m + α·y_t - 0.5)) + λ·y_t`，其中 `m` 为五路感知通道加权均值、`σ` 为 logistic 饱和（增益饱和 / 限幅）、`λ` 为回流惯性、`α` 为自反馈占比；满足 `(1-λ) + λ·g/8 < 1` 时为压缩映射，迭代必收敛到唯一不动点。
