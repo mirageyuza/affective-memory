@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "script": "benchmark.benchmark",
+    "timestamp": "2026-11-06 12:48:26",
+    "memories": 20,
+    "top_k": 3,
+    "seed": 42,
+    "vectorizer": "bow",
+    "query_mode": "paraphrase",
+    "embedding_backend": "fastembed"
+  },
+  "hit_rate": {
+    "pre_pollution": {
+      "hit_rate": 0.4,
+      "unrelated_hit_rate": 0.1
+    },
+    "post_pollution": {
+      "hit_rate": 0.4,
+      "unrelated_hit_rate": 0.1
+    },
+    "original_view": {
+      "hit_rate": 0.4,
+      "unrelated_hit_rate": 0.1
+    },
+    "recall_stability": 0.0
+  },
+  "affect_shift": {
+    "beautify_direction_ok": 0.9,
+    "uglify_direction_ok": 0.8,
+    "mean_abs_shift": 1.0628,
+    "polluted_view_changed_ratio": 1.0,
+    "original_unchanged": 40
+  },
+  "embedding_comparison": {
+    "status": "ok",
+    "backend": "fastembed",
+    "note": "",
+    "bow_hit_rate": 0.4,
+    "embedding_hit_rate": 1.0,
+    "embedding_unrelated_hit_rate": 0.1,
+    "delta": 0.6
+  }
+}

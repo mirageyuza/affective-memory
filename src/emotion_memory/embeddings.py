@@ -18,7 +18,11 @@ sentence-transformers 接入，作为检索向量化的可插拔增强，不破�
     - ``local_compat``   : 本地 OpenAI 兼容端点（Ollama / LM Studio），允许空 key；
     - ``mock``           : 复用 ``MockModelAdapter.embed()``（确定性 8 维，离线演示 / 单测）；
     - ``sentence_transformers`` : 本地 sentence-transformers 可选依赖，
-      未安装时构造即抛 ``LLMError`` 说明，不影响其余功能。
+      未安装时构造即抛 ``LLMError`` 说明，不影响其余功能；
+    - ``fastembed``      : 本地 ONNX 运行时（fastembed + onnxruntime，免 torch），
+      与 ``sentence_transformers`` 同一模型族（默认
+      ``paraphrase-multilingual-MiniLM-L12-v2``），体积与启动开销更小；
+    - ``auto``           : 依次尝试 sentence_transformers → fastembed，取首个可用。
 
 凭据安全：沿用 ``model_adapter`` 的规则，api_key 严禁硬编码，一律环境变量 /
 配置注入；本地端点允许空 key。嵌入结果做 L2 归一化后缓存，避免重复请求。
@@ -26,6 +30,7 @@ sentence-transformers 接入，作为检索向量化的可插拔增强，不破�
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 
@@ -51,6 +56,67 @@ class SentenceTransformersEmbedder:
     def embed(self, text: str) -> List[float]:
         vec = self._model.encode(str(text))
         return [float(x) for x in vec.tolist()]
+
+
+_DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+
+def _default_fastembed_cache() -> str:
+    """解析 fastembed 模型缓存目录。
+
+    Windows 下 HF 缓存路径含 ``models--<org>--<model>`` 长目录名，若挂在很深的
+    用户目录下会触发 ``WinError 206``（路径超过 260 字符），因此 Windows 默认
+    使用盘根短目录；可用 ``EMBEDDING_CACHE_DIR`` 覆盖。
+    """
+    env = os.environ.get("EMBEDDING_CACHE_DIR", "").strip()
+    if env:
+        return env
+    if os.name == "nt":
+        drive = os.environ.get("SystemDrive", "C:")
+        return os.path.join(drive + os.sep, "fe_cache")
+    return os.path.join(os.path.expanduser("~"), ".cache", "fastembed")
+
+
+class FastEmbedder:
+    """本地 fastembed（ONNX Runtime）嵌入器：可选依赖、免 torch、惰性加载。
+
+    与 ``SentenceTransformersEmbedder`` 提供同一 ``embed(text) -> List[float]``
+    接口；底层模型经 Qdrant 转换的 ONNX 版本，语义与 sentence-transformers
+    对应模型一致（同一权重）。首次调用会下载模型（默认走
+    ``HF_ENDPOINT``，国内可设为 ``https://hf-mirror.com``）。
+    """
+
+    def __init__(
+        self,
+        model_name: str = _DEFAULT_MODEL,
+        cache_dir: Optional[str] = None,
+        threads: Optional[int] = None,
+    ):
+        try:
+            from fastembed import TextEmbedding  # type: ignore
+        except Exception as exc:  # ModuleNotFoundError 等
+            raise LLMError(
+                "fastembed 未安装：本地 ONNX embedding 后端需 "
+                "`pip install fastembed`（可选依赖，不影响其余功能）。"
+            ) from exc
+        self.model_name = model_name
+        self.cache_dir = cache_dir or _default_fastembed_cache()
+        self.threads = threads
+        try:
+            os.makedirs(self.cache_dir, exist_ok=True)
+            self._model = TextEmbedding(
+                model_name=model_name,
+                cache_dir=self.cache_dir,
+                threads=threads,
+            )
+        except Exception as exc:
+            raise LLMError(
+                f"fastembed 模型加载失败（{model_name}）：{type(exc).__name__}: {exc}"
+            ) from exc
+
+    def embed(self, text: str) -> List[float]:
+        vecs = list(self._model.embed([str(text)]))
+        return [float(x) for x in vecs[0].tolist()]
 
 
 def _l2_normalize(vec: Sequence[float]) -> List[float]:
@@ -137,15 +203,50 @@ def create_embedding_vectorizer(
         ad = create_adapter(profile, backend="gemini")
         return EmbeddingVectorizer(adapter=ad)
 
+    model_name = str(profile.get("model_name") or _DEFAULT_MODEL)
+
+    if backend == "fastembed":
+        return EmbeddingVectorizer(
+            adapter=FastEmbedder(
+                model_name=model_name,
+                cache_dir=profile.get("cache_dir") or None,
+                threads=profile.get("threads") or None,
+            )
+        )
+
     if backend == "sentence_transformers":
         return EmbeddingVectorizer(
             adapter=SentenceTransformersEmbedder(
-                model_name=str(profile.get("model_name", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")),
+                model_name=model_name,
                 device=str(profile.get("device", "cpu")),
             )
         )
 
+    if backend == "auto":
+        # 本地优先：sentence_transformers 不可用则回退 fastembed（免 torch）
+        errors: List[str] = []
+        try:
+            return EmbeddingVectorizer(
+                adapter=SentenceTransformersEmbedder(
+                    model_name=model_name,
+                    device=str(profile.get("device", "cpu")),
+                )
+            )
+        except LLMError as exc:
+            errors.append(f"sentence_transformers: {exc}")
+        try:
+            return EmbeddingVectorizer(
+                adapter=FastEmbedder(
+                    model_name=model_name,
+                    cache_dir=profile.get("cache_dir") or None,
+                    threads=profile.get("threads") or None,
+                )
+            )
+        except LLMError as exc:
+            errors.append(f"fastembed: {exc}")
+        raise LLMError("本地 embedding 后端均不可用 -> " + " | ".join(errors))
+
     raise LLMError(
-        f"未知 embedding 后端: {backend or '(empty)'}（支持 "
-        f"mock / openai_compat / local_compat / gemini / sentence_transformers）"
+        f"未知 embedding 后端: {backend or '(empty)'}（支持 mock / openai_compat / "
+        f"local_compat / gemini / sentence_transformers / fastembed / auto）"
     )

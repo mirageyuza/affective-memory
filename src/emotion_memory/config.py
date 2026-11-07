@@ -70,7 +70,7 @@ class Dial:
 
     # ---- v0.6 可选 embedding 向量化后端（默认关闭，保持零依赖词袋哈希） ----
     embedding_enabled: bool = False        # embedding 向量化开关（关闭=零依赖词袋）
-    embedding_backend: str = "mock"        # mock / openai_compat / local_compat / gemini / sentence_transformers
+    embedding_backend: str = "mock"        # mock / openai_compat / local_compat / gemini / sentence_transformers / fastembed / auto
     embedding_profile: Dict[str, Any] = field(default_factory=dict)  # base_url/model/api_key 等
 
     def validate(self) -> "Dial":

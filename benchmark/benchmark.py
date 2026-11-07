@@ -75,6 +75,33 @@ _SAMPLES: List[Tuple[str, float]] = [
 ]
 
 
+# 改写查询对照（v0.6.3）：与原文**不复用字面**的同义/口语化/跨语言表述。
+# lexical 模式从原文抽字构造查询，词面必然重合，词袋哈希天然占优；
+# paraphrase 模式才反映真实使用场景（用户记不清原话、换种说法来问）。
+_PARAPHRASES: Dict[str, str] = {
+    "去年生日和三个老同学爬山，很开心": "和旧同学登山过生的愉快回忆",
+    "今天项目终于验收通过，团队聚餐庆祝": "工程交付后同事们一起吃饭",
+    "收到了奖学金到账通知，一整年学费有着落": "助学金打到卡里，交学费不用愁",
+    "妈妈做的红烧肉真好吃，家的味道": "想念母亲炖的菜",
+    "面试通过了，下周入职新公司": "拿到 offer 准备去新单位报到",
+    "老朋友专程来探望，聊到深夜": "好友远道而来叙旧到半夜",
+    "看完樱花回程，路上拍到了绝美夕阳": "赏花的归途遇见漂亮的晚霞",
+    "宝宝第一次叫爸爸，全家都很激动": "孩子开口喊爹，一家人特别兴奋",
+    "马拉松完赛，拿到人生第一块奖牌": "跑完长距离赛事拿到纪念勋章",
+    "期待已久的演唱会门票终于抢到了": "好不容易买到偶像演出的票",
+    "周末加班到凌晨，项目又要返工": "休息日熬夜干活还得重做",
+    "钱包在地铁上丢了，证件补办很麻烦": "坐地铁时丢了皮夹，补身份证很折腾",
+    "体检报告有异常项，需要复查": "身体检查结果不好，要再去医院看",
+    "和搭档因为分工吵了一架，心里堵得慌": "跟同事为任务分配起争执，很难受",
+    "提交的方案被驳回，三个月的努力白费": "提案被否掉了，辛苦一季全白干",
+    "半夜发烧去急诊，输液到天亮": "深夜高烧跑医院打点滴",
+    "房租到期被要求立刻搬走，很狼狈": "房东催着立刻腾房，手忙脚乱",
+    "电脑硬盘突然损坏，毕业论文没备份": "论文资料全部丢失，机器的盘坏了",
+    "航班延误六小时，在机场干等": "飞机晚点大半天，在候机厅耗着",
+    "考研成绩不理想，调剂希望渺茫": "研究生考试分数低，改投别的学校也难",
+}
+
+
 def _query_from_text(text: str, rng: random.Random) -> str:
     """从原文抽取关键词构造可命中查询（抽取非停用字，最多 6 个）。"""
     stops = set("的了在和与都很有被又很个把对让他")
@@ -86,12 +113,14 @@ def _query_from_text(text: str, rng: random.Random) -> str:
 
 class BenchmarkRunner:
     def __init__(self, memories: int, top_k: int, seed: int,
-                 vectorizer: str = "bow", embedding_backend: str = "mock"):
+                 vectorizer: str = "bow", embedding_backend: str = "mock",
+                 query_mode: str = "lexical"):
         self.rng = random.Random(seed)
         self.memories = memories
         self.top_k = top_k
         self.vectorizer = vectorizer          # bow | embedding
         self.embedding_backend = embedding_backend  # mock / openai_compat / ...
+        self.query_mode = query_mode              # lexical | paraphrase
 
     # ------------------------------------------------------------ 构造
     def _fresh_system(self, vectorizer: str = "bow",
@@ -126,6 +155,9 @@ class BenchmarkRunner:
     # ------------------------------------------------------------ 命中率
     def _make_queries(self, seeds: List[Tuple[str, str, float]]) -> List[str]:
         """从已写入的种子原文一次性生成固定查询组，保证对照组（污染前/后/原文/embedding）使用同一批查询。"""
+        if self.query_mode == "paraphrase":
+            return [_PARAPHRASES.get(text, _query_from_text(text, self.rng))
+                    for _, text, _ in seeds]
         return [_query_from_text(text, self.rng) for _, text, _ in seeds]
 
     def _hit_rate(
@@ -157,12 +189,13 @@ class BenchmarkRunner:
     def _make_embedding_vectorizer(self):
         from emotion_memory.embeddings import create_embedding_vectorizer
         profile: Dict[str, Any] = {}
-        if self.embedding_backend == "sentence_transformers":
+        if self.embedding_backend in ("sentence_transformers", "fastembed", "auto"):
             profile = {
                 "model_name": os.environ.get(
                     "EMBEDDING_MODEL_NAME",
                     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"),
                 "device": os.environ.get("EMBEDDING_DEVICE", "cpu"),
+                "cache_dir": os.environ.get("EMBEDDING_CACHE_DIR", ""),
             }
         elif self.embedding_backend in ("openai_compat", "local_compat", "gemini"):
             profile = {
@@ -194,6 +227,7 @@ class BenchmarkRunner:
             "backend": self.embedding_backend,
             "note": "mock 后端为确定性 8 维嵌入，仅验证 embedding 接口链路可用，"
                     "不代表真实语义嵌入质量；真实后端不可用时 status=unavailable。"
+                    "真实对照请用 --embedding-backend fastembed / sentence_transformers。"
                     if self.embedding_backend == "mock" else "",
             "bow_hit_rate": bow_hit_rate,
             "embedding_hit_rate": emb["hit_rate"],
@@ -272,6 +306,7 @@ class BenchmarkRunner:
                 "top_k": self.top_k,
                 "seed": 0,  # 保留字段（确定性种子由调用方控制）
                 "vectorizer": self.vectorizer,
+            "query_mode": self.query_mode,
                 "embedding_backend": self.embedding_backend,
             },
             "hit_rate": {
@@ -298,6 +333,7 @@ def format_text(report: Dict[str, Any]) -> str:
         f"记忆条数        : {m['memories']}",
         f"top-k           : {m['top_k']}",
         f"向量化器        : {m.get('vectorizer', 'bow')}",
+        f"查询构造方式    : {m.get('query_mode', 'lexical')}",
         f"时间            : {m['timestamp']}",
         "",
         "【1. 回忆命中率】",
@@ -347,14 +383,19 @@ def main() -> None:
     ap.add_argument("--vectorizer", choices=["bow", "embedding"], default="bow",
                     help="主向量化路径：bow=词袋哈希（默认）；embedding=嵌入后端")
     ap.add_argument("--embedding-backend", choices=[
-        "mock", "openai_compat", "local_compat", "gemini", "sentence_transformers"],
+        "mock", "openai_compat", "local_compat", "gemini", "sentence_transformers",
+        "fastembed", "auto"],
         default="mock",
         help="embedding 对照后端（默认 mock=确定性 8 维，离线验证链路）")
+    ap.add_argument("--query-mode", choices=["lexical", "paraphrase"], default="lexical",
+                    help="查询构造方式：lexical=从原文抽字（词面重合，利于词袋）；"
+                         "paraphrase=同义改写（不复用字面，贴近真实使用）")
     ap.add_argument("--report-path", default="benchmark/benchmark_report.json")
     ns = ap.parse_args()
 
     runner = BenchmarkRunner(memories=ns.memories, top_k=ns.top_k, seed=ns.seed,
-                             vectorizer=ns.vectorizer, embedding_backend=ns.embedding_backend)
+                             vectorizer=ns.vectorizer, embedding_backend=ns.embedding_backend,
+                             query_mode=ns.query_mode)
     report = runner.run()
     report["meta"]["seed"] = ns.seed
     report["meta"]["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")

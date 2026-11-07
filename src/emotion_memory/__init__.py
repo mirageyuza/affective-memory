@@ -27,6 +27,13 @@ from .potential_transfer import PotentialTransfer
 from .entropic_forgetting import EntropicForgetting
 from .turbulent_association import TurbulenceAssociator
 from .personality_manifold import EnvironmentVector, PersonalityManifold
+# v0.6.3 可选 embedding 后端：本地 ONNX（fastembed，免 torch）/ sentence-transformers
+from .embeddings import (
+    EmbeddingVectorizer,
+    FastEmbedder,
+    SentenceTransformersEmbedder,
+    create_embedding_vectorizer,
+)
 # v0.6.2 元认知层：置信度估计 + 拒答策略 + 校准度量
 from .metacognition import (
     ABSTAIN_TEXT,
@@ -57,7 +64,7 @@ from .creed import (
     verify_invariants,
 )
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 __all__ = [
     "Dial",
     "AffectLabel",
@@ -106,5 +113,10 @@ __all__ = [
     "LEVEL_HEDGE",
     "LEVEL_ABSTAIN",
     "calibrate",
+    # v0.6.3 可选 embedding 后端
+    "EmbeddingVectorizer",
+    "FastEmbedder",
+    "SentenceTransformersEmbedder",
+    "create_embedding_vectorizer",
     "__version__",
 ]

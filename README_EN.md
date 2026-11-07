@@ -1,6 +1,6 @@
 # EmotionMemory — A Human-Like Emotional Memory System
 
-> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity** (current version **v0.6.0**).
+> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity** (current version **v0.6.3**).
 
 Memories are reawakened by periodic oscillations, their intensity is modulated by emotional gain on a dB scale, overload triggers divergent associations, accessibility follows a forgetting curve over time. The system knows when to speak — and when to stay silent. An agent can be reset, reinstalled, or upgraded, but its memories live forever.
 
@@ -19,7 +19,7 @@ This project is positioned as an **integration wrapper around open-source compon
 | Sentiment analysis | Existing sentiment classification models (per model license) | Per model license | Reserved `affect=(valence, arousal)` label hook |
 | Forgetting-curve reference | FSRS / Anki (SM-2) algorithms | Permissive (MIT-family) | Reference implementation of accessibility decay/boost model |
 | Migration protocol | git / rsync incremental ideas | Permissive | Current-bridge incremental export (changed entries only) |
-| Embedding vectorization | OpenAI-compatible embed API / sentence-transformers | Per API license / MIT (local) | Optional `EmbeddingVectorizer` (v0.6), off by default, no runtime dependency |
+| Embedding vectorization | OpenAI-compatible embed API / local fastembed (ONNX) / sentence-transformers | Per API license / MIT (local) | Optional `EmbeddingVectorizer` (v0.6; v0.6.3 adds a local ONNX backend), off by default, no runtime dependency |
 
 **Compliance red line**: when releasing the whole package as open source, all runtime and index dependencies must be MIT / Apache-2.0 / BSD family; GPL and commercial-term components (e.g., Neo4j Community, Mem0 commercial edition, AGPL-family tools such as PyMuPDF) must never be introduced. The v0.6 embedding enhancement follows the same red line: online endpoints use the OpenAI-compatible embed API over the standard-library `urllib` (no third-party dependency); local sentence-transformers is available only when explicitly enabled and self-installed by the user (MIT license), and does not enter the runtime dependency list.
 
@@ -69,13 +69,15 @@ As of v0.5.0, the four physical laws and the personality manifold sit above the 
 
 As of v0.6.0, the retrieval layer adds an **optional embedding vectorization enhancement**: `EmbeddingVectorizer` is a pluggable backend (OpenAI-compatible embed API / local sentence-transformers); when disabled (default), the system still uses the zero-dependency bag-of-words hash path, preserving existing interfaces and unit tests. The benchmark now includes a **bag-of-words vs embedding** comparison dimension.
 
+Since v0.6.3 the real semantic backends are covered by actual measurements: a `fastembed` backend (ONNX Runtime, no torch, same model weights as sentence-transformers) plus an `auto` fallback chain (sentence-transformers -> fastembed), and a `--query-mode paraphrase` benchmark mode that exposes the structural weakness of bag-of-words on synonymous / cross-language rewrites.
+
 Corresponding code layout (`src/emotion_memory/`):
 
 | Module | Responsibility |
 |---|---|
 | `models.py` | Data models for memory / affect labels / cluster metadata |
 | `config.py` | Freedom dial `Dial` (default: low noise, high stability; v0.6 adds embedding switches) |
-| `embeddings.py` | **(v0.6) Optional EmbeddingVectorizer**: mock / openai_compat / local_compat / gemini / sentence_transformers, same interface as bag-of-words |
+| `embeddings.py` | **(v0.6) Optional EmbeddingVectorizer**: mock / openai_compat / local_compat / gemini / sentence_transformers / **fastembed** (v0.6.3, ONNX, no torch) / **auto** (fallback chain), same interface as bag-of-words |
 | `store/storage.py` | Original-text storage layer: JSONL disk persistence; `original_text` is archived permanently and cannot be modified or deleted; `text` is the pollutable view that can be persisted |
 | `store/vector_index.py` | Vector index: bag-of-words hashed vectors + brute-force ANN (interfaces swappable to FAISS/HNSW) |
 | `store/graph_index.py` | Lightweight entity-relation graph index: related-cluster localization + strong-association edges |
@@ -118,36 +120,51 @@ python demo/demo_v04_llm_pipeline.py     # v0.4 (conversation pipeline→emergen
 python demo/demo_v05_physical_laws.py    # v0.5 (four physical laws→personality manifold→dual-environment bifurcation)
 python demo/demo_v06_marvis_integration.py # v0.6 demo (Marvis integration example)
 python demo/demo_pollution_llm_effect.py   # v0.6 demo (attitude drift when polluted memories are fed to an LLM; offline Mock, --config for real model)
-python -m unittest discover -s tests -v  # Unit tests (v0.6 total: 235, all green)
+python -m unittest discover -s tests -v  # Unit tests (v0.6 total: 293, all green)
 python -m benchmark.benchmark --memories 1000 --top-k 5   # Benchmark (bag-of-words vs embedding, see Chapter 6)
 python cli.py --help                         # CLI terminal (repo root entry)
 python cli.py write "去年生日和三个老同学爬山" --cluster 生活
 python cli.py recall "爬山 生日" --view original
 ```
 
-### 3.1 Enabling the Optional Embedding Vectorizer (v0.6)
+### 3.1 Enabling the Optional Embedding Vectorizer (v0.6 / v0.6.3 adds a local ONNX backend)
 
 ```python
 from emotion_memory.engine import EmotionalMemorySystem
-from emotion_memory.embeddings import make_vectorizer
+from emotion_memory.embeddings import create_embedding_vectorizer
 
 # Option 1: zero-config mock (link verification only; deterministic 8-dim)
-mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(backend="mock"))
+mem = EmotionalMemorySystem("data_dir", vectorizer=create_embedding_vectorizer(backend="mock"))
 
 # Option 2: OpenAI-compatible embed API (reuses model_adapter.embed; credentials via EMOTION_LLM_API_KEY / OPENAI_API_KEY)
-mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(
+mem = EmotionalMemorySystem("data_dir", vectorizer=create_embedding_vectorizer(
     backend="openai_compat",
-    base_url="https://api.openai.com/v1",
-    model="text-embedding-3-small",
+    profile={"base_url": "https://api.openai.com/v1", "model": "text-embedding-3-small"},
 ))
 
-# Option 3: local sentence-transformers (must be self-installed; MIT license; auto-fallback + warning if missing)
-mem = EmotionalMemorySystem("data_dir", vectorizer=make_vectorizer(
-    backend="sentence_transformers", model_name="BAAI/bge-small-zh-v1.5"
+# Option 3: local fastembed (ONNX Runtime, no torch, recommended; pip install "emotion-memory[local]")
+mem = EmotionalMemorySystem("data_dir", vectorizer=create_embedding_vectorizer(
+    backend="fastembed",
+    profile={"model_name": "BAAI/bge-small-zh-v1.5"},   # default: paraphrase-multilingual-MiniLM-L12-v2
 ))
+
+# Option 4: local sentence-transformers (must be self-installed; MIT license)
+mem = EmotionalMemorySystem("data_dir", vectorizer=create_embedding_vectorizer(
+    backend="sentence_transformers", profile={"model_name": "BAAI/bge-small-zh-v1.5"}
+))
+
+# Option 5: auto - tries sentence_transformers then fastembed, first available wins
+mem = EmotionalMemorySystem("data_dir", vectorizer=create_embedding_vectorizer(backend="auto"))
 ```
 
-When disabled or when the backend is unavailable, the engine automatically falls back to the zero-dependency bag-of-words hash and prints a warning, without breaking existing behavior. See the `embedding` section of `config.example.json`.
+It can also be toggled through `Dial`: `Dial(embedding_enabled=True, embedding_backend="fastembed", embedding_profile={...})` makes the engine build it automatically; with `embedding_enabled=False` (default) bag-of-words is always used.
+
+**Local backend notes**:
+
+- fastembed runs on ONNX Runtime and needs no torch (much smaller install and faster startup than sentence-transformers); the weights are the ONNX version of the same model, so semantics are equivalent;
+- the first call downloads the model; behind restrictive networks set `HF_ENDPOINT=https://hf-mirror.com`;
+- on Windows the HF cache path contains long `models--<org>--<model>` directory names, which triggers `WinError 206` (path > 260) under deep paths, so Windows caches to a short drive-root directory (e.g. `C:\fe_cache`), overridable via `EMBEDDING_CACHE_DIR`;
+- when disabled or unavailable, the engine falls back to the zero-dependency bag-of-words hash and prints a warning, without breaking existing behavior. See the `embedding` section of `config.example.json`.
 
 ## 4. Core API
 
@@ -248,7 +265,7 @@ python -m emotion_memory        # exit code 1 if the seal is broken
 The dangerous failure of a memory system is not "nothing was recalled" but "one weak hit, stated with full confidence". `metacognition.py` turns "how sure am I" into a computable, auditable number with three output levels: `answer` / `hedge` / `abstain`.
 
 ```python
-res = system.recall_verdict("how to set a 0.3MPa preload", top_k=3)
+res = system.recall_verdict("which exhibition should I visit this weekend", top_k=3)
 res["level"]        # answer / hedge / abstain
 res["confidence"]   # 0..1
 res["verdict"]["breakdown"]  # semantic relevance / margin / dispersion / coverage
@@ -284,33 +301,40 @@ Abstention and hedge wording are fixed templates (`ABSTAIN_TEXT` / `HEDGE_TEXT`)
 `Dial.metacognition_enabled` is off by default: with it off, `recall` behaves exactly as before, while `recall_verdict` remains explicitly callable (observes only, rewrites nothing). Known limits live in `METACOGNITION_LIMITS`.
 
 
-## 6. Benchmark Results (v0.6 Comparison Upgrade)
+## 6. Benchmark Results (v0.6.3 semantic-backend comparison)
 
-`python -m benchmark.benchmark --memories N --top-k K --seed S` outputs JSON + TXT reports quantifying: **recall accuracy** (pre-pollution / post-pollution / original view / unrelated queries), **bag-of-words vs embedding comparison**, **recall stability** (pollution does not break recall), **affect bias** (beautify/uglify directional accuracy, mean shift), and **original-text immutability** (kept count).
+`python -m benchmark.benchmark --memories N --top-k K --seed S [--query-mode lexical|paraphrase]` outputs JSON + TXT reports quantifying: **recall accuracy** (pre-pollution / post-pollution / original view / unrelated queries), **bag-of-words vs embedding comparison**, **recall stability** (pollution does not break recall), **affect bias** (beautify/uglify directional accuracy, mean shift), and **original-text immutability** (kept count).
 
-> All accuracy comparisons use the zero-noise dial (`noise_temperature=0`), making oscillation scoring fully deterministic and pre/post-pollution strictly comparable (`|Δ|=0` means pollution does not break recall).
+> All accuracy comparisons use the zero-noise dial (`noise_temperature=0`), making oscillation scoring fully deterministic and pre/post-pollution strictly comparable (`|delta|=0` means pollution does not break recall).
+
+**Query modes** (new in v0.6.3):
+
+- `lexical` (default): query terms are taken verbatim from the original text, testing literal matching;
+- `paraphrase`: queries are rewritten into synonyms / cross-language phrasing, testing semantic generalization - the structural weakness of hashed bag-of-words, and the motivation for introducing real embeddings.
 
 ### 6.1 Current Measured Numbers (honest, no fabrication)
 
-Reproducible baseline results in this repository (300 mixed CN/EN memories, top-k=5, multiple seeds; see `benchmark/benchmark_report*.json`):
+Reproducible results in this repository (20 mixed CN/EN memories, top-k=3, seeds 42/43/44, real local `fastembed` ONNX backend; reports in `benchmark/benchmark_report*.json`):
 
-| Metric | seed=1 | seed=2 | seed=3 | Note |
+| Metric | seed=42 | seed=43 | seed=44 | Note |
 |---|---|---|---|---|
-| Bag-of-words hit rate (pre-pollution) | 31.00% | 30.67% | 32.67% | BOW baseline (≈0.255–0.33 band, seed-sensitive) |
-| Bag-of-words hit rate (post-pollution) | 31.00% | 30.67% | 32.67% | Identical to pre-pollution, `|Δ|=0` |
-| Original-view hit rate | 31.00% | 30.67% | 32.67% | Identical to pre-pollution |
-| Unrelated-query hit rate | 1.33% | 2.33% | 2.00% | Far below target queries; retrieval is discriminative |
-| Embedding(mock) hit rate | 2.67% | 1.00% | 1.33% | **Link verification only**, not real semantic quality |
-| Affect bias beautify accuracy | 90.67% | — | — | directional accuracy (seed=1) |
-| Affect bias uglify accuracy | 80.67% | — | — | directional accuracy (seed=1) |
-| Original-text immutability | 600/600 | — | — | kept count pre/post pollution |
+| lexical BOW hit rate (pre-pollution) | 100% | 100% | 100% | BOW is very strong on literal matches |
+| lexical BOW hit rate (post-pollution) | 100% | 100% | 100% | Identical to pre-pollution, `|delta|=0` |
+| lexical embedding (fastembed) | 75% | 70% | 70% | pure semantic similarity is insensitive to proper nouns / IDs |
+| paraphrase BOW hit rate | 40% | 40% | 40% | **BOW generalization weakness exposed** |
+| paraphrase embedding (fastembed) | 100% | 100% | 100% | **embeddings win outright on reworded queries** |
+| Unrelated-query hit rate | 5%-15% | 15% | 5%-10% | far below target queries; retrieval is discriminative |
+| Affect bias beautify accuracy | 90% | 90% | 90% | directional accuracy |
+| Affect bias uglify accuracy | 80% | 80% | 80% | directional accuracy |
+| Original-text immutability | 40/40 | 40/40 | 40/40 | kept count pre/post pollution |
 
-**Important notes (honest disclosure)**:
+**Conclusions (stated honestly)**:
 
-1. **Bag-of-words baseline ≈ 0.255** was the planning target reference; current reproducible runs (300 memories × multiple seeds) measure **30.7%–32.7%**, above the target reference, with fluctuation caused by random seeds and hash-collision distribution over the mixed CN/EN corpus;
-2. **The embedding comparison uses the mock backend**: mock is a deterministic 8-dim embedding that only validates the `EmbeddingVectorizer` integration path and the benchmark comparison pipeline; **it does not represent real semantic retrieval quality**. When a real backend (OpenAI-compatible / sentence-transformers) lacks credentials or dependencies, the benchmark honestly marks `status=unavailable` and does not fabricate numbers;
-3. Recall stability `|Δ|=0`: the pollution filter does not break recall, consistent with the design goal;
-4. The full JSON report is at `benchmark/benchmark_report.json` (including the `status` field).
+1. **The two backends are complementary, not substitutes**: for literal queries (entity names, IDs, proper nouns) BOW reaches 100% versus 70%-75% for embeddings; for paraphrased queries BOW drops to 40% while embeddings reach 100%. This is why `embedding_enabled` still defaults to `False` - default behavior is unchanged and semantic generalization is opt-in;
+2. Recall stability `|delta|=0`: the pollution filter does not break recall, consistent with the design goal;
+3. Affect directional accuracy is 90% / 80%; pollution does change the affect view (`polluted_view_changed_ratio=1.0`) while the original text stays untouched (`original_unchanged=40`), matching the rewrite-the-view-never-the-original boundary;
+4. Historical reference: v0.6.0 only validated the pipeline with an 8-dim mock embedding (1%-3% hit rate, **not a measure of semantic quality**); since v0.6.3 the numbers use real local ONNX weights and are therefore comparable;
+5. Full JSON reports live in `benchmark/benchmark_report*.json` (with `status` / `embedding_backend` / `query_mode` fields); when credentials or dependencies are missing the benchmark honestly reports `status=unavailable` instead of fabricating numbers.
 
 ## 7. Version History at a Glance
 
@@ -320,24 +344,26 @@ Reproducible baseline results in this repository (300 mixed CN/EN memories, top-
 - **v0.6**: optional embedding vectorization, benchmark bag-of-words vs embedding comparison, pollution-effect experiment demo, version alignment, bilingual README rewrite, Marvis integration archive (demo/demo_v06_marvis_integration.py), model_adapter multi-provider registry archive.
 - **v0.6.1**: kernel-constant layer `creed.py` (genesis signature + eternal oath + SHA-256 seal + 6 verifiable invariants), oath carried in the identity profile with forced restoration on tampering, `python -m emotion_memory` oath card;
 - **v0.6.2**: metacognition layer `metacognition.py` (confidence breakdown / three-level abstention / ECE & Brier calibration); confidence never reads the emotional-gain score, `recall_verdict()` observes only.
+- **v0.6.3**: real local semantic backend `fastembed` (ONNX Runtime, no torch) plus an `auto` fallback chain (sentence_transformers -> fastembed); `pyproject` gains `[local]` / `[st]` optional dependencies; the benchmark gains a `--query-mode paraphrase` semantic-rewrite comparison, establishing the complementary result of literal queries (BOW 100% vs embedding 70%-75%) and rewording queries (BOW 40% vs embedding 100%); the Windows HF cache uses a short path to avoid `WinError 206`.
 
-## 8. Known Limitations and Roadmap (v0.6, honest)
+## 8. Known Limitations and Roadmap (v0.6.3, honest)
 
 **Known limitations**:
 
-- The default bag-of-words hashed vectors have no semantic generalization; synonymous rewrites / cross-language queries have limited hit rates (currently measured ≈30%, seed-sensitive);
-- Embedding enhancement is currently an **optional backend with mock link verification**: real OpenAI-compatible endpoints require user-configured credentials (never hardcoded); sentence-transformers must be self-installed (MIT license); when not connected, the benchmark honestly reports `unavailable`;
+- The default bag-of-words hashed vectors have no semantic generalization; synonymous rewrites / cross-language queries have limited hit rates (paraphrase mode measures 40%); literal queries reach 100% but cannot cover different phrasings of the same meaning;
+- Embedding enhancement now ships **real local backends** (fastembed ONNX / sentence-transformers), but: local models download weights on first run (tens of MB, needs network and disk); OpenAI-compatible endpoints require user-supplied credentials (never hardcoded); embeddings are in fact weaker than BOW on literal / entity-style queries (70%-75% < 100% measured), and **there is no automatic query routing yet**, so users must pick the backend per workload;
 - Single-machine JSONL storage + brute-force ANN: targeted at individuals / small teams; no distributed, multi-tenant, or sub-second large-scale retrieval (boundary vs Zep Cloud / Mem0 enterprise scenarios in COMPARISON.md);
 - The affect labeler is a zero-dependency built-in lexicon, less accurate than LLM labeling; `affect_provider` external hook reserved;
 - No automated dependency scanner for GPL/commercial-license forbidden lists yet (compliance relies on manual review of NOTICE.md).
 
 **Roadmap**:
 
-1. Integrate real embedding backends (OpenAI-compatible / sentence-transformers / local vector DB) to replace bag-of-words hashing with semantic hit rates, with an honest "bag-of-words vs real embedding" benchmark comparison;
-2. Retrieval ranking fusion: emotional gain × vector similarity × forgetting accessibility, three-channel weighted;
-3. Optional vector DB backends (FAISS / HNSW / Qdrant, all MIT / Apache-2.0, license-compliant) to replace brute-force ANN;
-4. Large-scale memory stress tests (1k / 10k / 100k) with recall@k curves;
-5. Automated compliance scanning (dependency license checks) in CI.
+1. ~~Integrate real embedding backends and give an honest "bag-of-words vs real embedding" benchmark comparison~~ - **done in v0.6.3** (local fastembed ONNX + paraphrase comparison, see Chapter 6);
+2. Intelligent retrieval routing: pick BOW or embedding per query characteristics (entity/ID versus pure semantic rewrite) and fuse both channels, removing today's manual either/or trade-off;
+3. Retrieval ranking fusion: emotional gain × vector similarity × forgetting accessibility, three-channel weighted;
+4. Optional vector DB backends (FAISS / HNSW / Qdrant, all MIT / Apache-2.0, license-compliant) to replace brute-force ANN;
+5. Large-scale memory stress tests (1k / 10k / 100k) with recall@k curves;
+6. Automated compliance scanning (dependency license checks) in CI.
 
 ## 9. Horizontal Comparison
 

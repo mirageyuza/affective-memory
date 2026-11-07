@@ -2,6 +2,26 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## v0.6.3 — 本地真实语义后端（fastembed / ONNX）与 paraphrase 对照实测
+
+- `embeddings.py` 新增 `FastEmbedder`：基于 fastembed + onnxruntime 的本地 ONNX 后端，**免 torch**；模型权重与 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 同源，输出统一 L2 归一化（`_l2_normalize`），与既有 `EmbeddingVectorizer` 接口一致。
+- `create_embedding_vectorizer()` 新增 `backend="fastembed"` 与 `backend="auto"`：`auto` 按 `sentence_transformers → fastembed` 顺序探测，取首个可用后端，全部不可用时回退零依赖词袋哈希并打印告警，不破坏既有行为。
+- `_default_fastembed_cache()`：Windows 下 HF 缓存含 `models--<org>--<model>` 长目录名，挂在深路径会触发 `WinError 206`（路径 > 260），故默认缓存到盘根短目录（如 `C:\fe_cache`），可用环境变量 `EMBEDDING_CACHE_DIR` 覆盖。
+- `benchmark/benchmark.py` 新增 `--query-mode {lexical,paraphrase}`：
+  - `lexical`（默认）查询词取自原文，检验字面命中；
+  - `paraphrase` 查询改为同义改写 / 跨语言表述，检验语义泛化——词袋哈希的结构性短板。
+  报告 `meta` 段新增 `query_mode` / `embedding_backend` 字段，便于对齐追溯。
+- 实测结论（20 条中英混合记忆、top-k=3、seed=42/43/44、真实 fastembed，报告 `benchmark/benchmark_report*.json`）：
+  - lexical：词袋 **100%** vs embedding **70%~75%**（纯语义相似度对实体名 / 编号不敏感）；
+  - paraphrase：词袋 **40%** vs embedding **100%**（语义改写场景 embedding 完胜）；
+  - 二者为**互补关系**，因此 `embedding_enabled` 默认仍为 `False`，语义能力按需显式开启。
+- `config.py`：`embedding_backend` 取值注释补齐 `fastembed` / `auto`；默认值仍为 `mock`，默认关闭逻辑不变。
+- `pyproject.toml` 新增可选依赖：`[local] = fastembed>=0.4`（ONNX，免 torch）、`[st] = sentence-transformers>=2.2`（需 torch）；核心包仍为零第三方运行时依赖。
+- `__init__.py` 导出 `EmbeddingVectorizer / FastEmbedder / SentenceTransformersEmbedder / create_embedding_vectorizer`（此前仅内部可用）；版本号 `__version__` 与 `pyproject.toml` 同步为 0.6.3。
+- 新增单测 14 项：`tests/test_v06_fastembed.py`（后端可用性探测、缓存目录短路径、`auto` 回退链顺序、paraphrase 查询集构造、词袋默认路径不受影响）。
+- 测试数演进：279 → 293（`unittest discover` 实测 293 项，全绿）。
+- 文档同步：`README.md` / `README_EN.md` 更新 §3.1（五种后端示例与本地后端说明）、§6（lexical / paraphrase 双模式真实数字与互补结论）、§7（v0.6.3 条目）、§8（限制与路线图，原第 1 项标注已完成并补「检索后端智能路由」新项）。
+
 ## v0.6.2 — 元认知层：置信度估计、拒答策略与校准度量
 
 - 新增 `src/emotion_memory/metacognition.py`：把「我有多确定」变成可计算、可分解、可审计的数字，输出三档裁决 `answer` / `hedge` / `abstain`。
