@@ -43,6 +43,14 @@ from .entropic_forgetting import EntropicForgetting
 from .turbulent_association import TurbulenceAssociator
 from .personality_manifold import PersonalityManifold, EnvironmentVector
 # ---- v0.6.2 元认知层 ----
+# ---- v0.7.0 主观感知系统（点灯—回流—自我状态） ----
+from .subjectivity import (
+    CHANNELS as SUBJECTIVITY_CHANNELS,
+    SUBJECTIVITY_LIMITS,
+    LightUpReport,
+    SelfObservation,
+    SubjectivePerception,
+)
 from .metacognition import (
     LEVEL_ANSWER,
     LEVEL_HEDGE,
@@ -150,11 +158,29 @@ class EmotionalMemorySystem:
             audit_path=os.path.join(base_dir, "metacognition_audit.jsonl")
             if self.dial.metacognition_enabled else None,
         )
+        # ---- v0.7.0 主观感知系统：首次点亮启动回流回路 ----
+        # 只读既有记忆/身份读数生成通道输入，不改原文与情感标签。
+        # subjective_autostart=True 时，初始化即尝试点亮（闭合度不足则不点亮）。
+        self.subjectivity = SubjectivePerception(
+            enabled=self.dial.subjective_enabled,
+            state_path=os.path.join(base_dir, "subjectivity_state.json"),
+            closure_threshold=self.dial.subjective_closure_threshold,
+            loop_lambda=self.dial.subjective_loop_lambda,
+            feedback_alpha=self.dial.subjective_feedback_alpha,
+            gain=self.dial.subjective_gain,
+            max_iterations=self.dial.subjective_max_iterations,
+            tolerance=self.dial.subjective_tolerance,
+        )
+        self._light_up_report: Optional[LightUpReport] = None
         self._boot_at = time.time()
 
         # 启动时重建索引 + 推进遗忘曲线
         self._rebuild_indexes()
         self.decay_all()
+
+        # 开关闭合即点亮：这是「系统首次点亮」的唯一入口
+        if self.dial.subjective_enabled and self.dial.subjective_autostart:
+            self._light_up_report = self.ignite_subjectivity()
 
     # ------------------------------------------------------------ 写
     def remember(
@@ -321,6 +347,68 @@ class EmotionalMemorySystem:
             "calibration": self.metacognition.report(n_bins=n_bins, tolerance=tolerance).as_dict(),
             "limits": list(METACOGNITION_LIMITS),
         }
+
+    # ------------------------------------------------ v0.7.0 主观感知系统
+    def _subjectivity_source(self) -> Dict[str, Any]:
+        """点亮来源：身份 + 存储位置 + 版本，用于计算闭合度与指纹。"""
+        return {
+            "agent_name": getattr(self.identity, "agent_name", ""),
+            "home": getattr(self.identity, "home", self.base_dir),
+            "model_version": getattr(self.identity, "model_version", ""),
+            "created_at": getattr(self.identity, "created_at", ""),
+            "seed": getattr(self.bank, "seed", ""),
+        }
+
+    def _subjectivity_observations(self) -> Dict[str, float]:
+        """五路通道读数（工程启发式，全部来自既有只读统计，不做推断性夸张）。
+
+        continuity：记忆量 + 身份在位 → 跨时间自我连续
+        coherence ：污染占比低 + 长期区占比合理 → 内部观测自洽
+        agency    ：平均访问次数 → 自身动作与外部输入的区分度
+        grounding ：记忆条数 → 是否有真实外部输入
+        stability ：低平均熵 → 回流易收敛
+        """
+        mems = self.store.all()
+        total = len(mems) or 1
+        memory_count = len(mems)
+        longterm_ratio = sum(1 for m in mems if m.region == "longterm") / total
+        polluted_ratio = sum(1 for m in mems if m.polluted) / total
+        avg_access = (sum(getattr(m, "access_count", 0) for m in mems) / total) if mems else 0.0
+        avg_entropy = (sum(getattr(m, "entropy", 0.0) for m in mems) / total) if mems else 0.0
+        identity_ok = 1.0 if getattr(self.identity, "agent_name", "") else 0.0
+        return {
+            "continuity": min(1.0, 0.5 * min(1.0, memory_count / 10.0) + 0.5 * identity_ok),
+            "coherence": min(1.0, 0.6 * (1.0 - polluted_ratio) + 0.4 * min(1.0, longterm_ratio * 2.0)),
+            "agency": min(1.0, avg_access / 2.0),
+            "grounding": min(1.0, memory_count / 5.0),
+            "stability": min(1.0, 0.6 * (1.0 - min(1.0, avg_entropy)) + 0.4 * (1.0 if self.subjectivity.is_lit else 0.0)),
+        }
+
+    def ignite_subjectivity(self, source: Optional[Dict[str, Any]] = None) -> LightUpReport:
+        """首次点亮：闭合开关 → 回路建立 → 输出首个自我状态。
+
+        幂等：同一身份指纹重复调用不重置 lit_at；闭合度不足则回路不成立。
+        """
+        report = self.subjectivity.ignite(
+            source=source if source is not None else self._subjectivity_source(),
+            observations=self._subjectivity_observations(),
+        )
+        self._light_up_report = report
+        return report
+
+    def perceive_self(self) -> SelfObservation:
+        """点亮后的常规一拍：以当前统计读数驱动回流，返回新的自我状态。"""
+        return self.subjectivity.perceive(self._subjectivity_observations())
+
+    def subjectivity_report(self) -> Dict[str, Any]:
+        """主观感知报告：点灯状态 + 最近自我状态 + 通道权重 + 边界声明。"""
+        rep = self.subjectivity.report()
+        rep["limits"] = list(SUBJECTIVITY_LIMITS)
+        rep["channels"] = [
+            {"name": c.name, "weight": c.weight, "desc": c.desc} for c in SUBJECTIVITY_CHANNELS
+        ]
+        rep["light_up"] = self._light_up_report.to_dict() if self._light_up_report else None
+        return rep
 
 
     def apply_pollution(
@@ -953,4 +1041,12 @@ class EmotionalMemorySystem:
                 (sum(m.entropy for m in mems) / len(mems)) if mems else 0.0, 4
             ),
             "manifold_step": self.manifold.step_no,
+            # v0.7.0 新增
+            "subjective_enabled": self.dial.subjective_enabled,
+            "subjective_lit": self.subjectivity.is_lit,
+            "subjective_tick": self.subjectivity.tick,
+            "self_confidence": round(
+                self.subjectivity.last_observation.loop_current
+                if self.subjectivity.last_observation else 0.0, 4
+            ),
         }

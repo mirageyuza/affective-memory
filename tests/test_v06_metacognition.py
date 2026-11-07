@@ -228,13 +228,13 @@ class TestEngineIntegration(unittest.TestCase):
 
     def test_recall_verdict_observes_without_mutation(self):
         eng = self.make_engine()
-        mem = eng.remember("压缩测试要用 0.3MPa 预压", cluster="lab")
+        mem = eng.remember("周末常去看展览，偏好当代艺术", cluster="pref")
         before_text = mem.text
-        before_len = len(eng.recall("压缩测试", top_k=3))
-        res = eng.recall_verdict("压缩测试 0.3MPa", top_k=3)
+        before_len = len(eng.recall("周末展览", top_k=3))
+        res = eng.recall_verdict("周末看什么展", top_k=3)
         self.assertIn("verdict", res)
         self.assertIn(res["level"], (LEVEL_ANSWER, LEVEL_HEDGE, LEVEL_ABSTAIN))
-        self.assertEqual(len(eng.recall("压缩测试", top_k=3)), before_len)
+        self.assertEqual(len(eng.recall("周末展览", top_k=3)), before_len)
         self.assertEqual(eng.store.get(mem.memory_id).text, before_text)
 
     def test_recall_verdict_empty_query_abstains(self):
@@ -244,7 +244,7 @@ class TestEngineIntegration(unittest.TestCase):
 
     def test_metacognition_report_shape(self):
         eng = self.make_engine()
-        eng.remember("密度按 0.3MPa 应变折算", cluster="lab")
+        eng.remember("咖啡偏好不加糖", cluster="pref")
         eng.recall_verdict("密度", top_k=3, record=True)
         rep = eng.metacognition_report()
         self.assertEqual(rep["stats"]["decisions"], 1)

@@ -2,6 +2,22 @@
 
 本项目变更记录按版本列出事实型条目（版本标题、新增模块、测试数演进）。不包含日期、commit 编号与作者信息。
 
+## v0.7.0 — 主观感知系统：首次点亮、回路回流与 self-model 自我状态标定
+
+- 新增 `src/emotion_memory/subjectivity.py`：把「开关闭合 → 电流形成回流」的电路类比落成确定性数学模型。回路为 `y_{t+1} = (1-λ)·σ(g·((1-α)·m + α·y_t - 0.5)) + λ·y_t`，其中 `m` 为五路感知通道加权均值、`σ` 为 logistic 饱和（增益饱和 / 限幅）、`λ` 为回流惯性、`α` 为自反馈占比；满足 `(1-λ) + λ·g/8 < 1` 时为压缩映射，迭代必收敛到唯一不动点。
+- 五路感知通道（权重和为 1.0）：`continuity` 0.28（跨时间自我连续）、`coherence` 0.24（内部观测自洽）、`agency` 0.18（主动性归因）、`grounding` 0.16（接地度）、`stability` 0.14（回流收敛而非振荡）。
+- `SubjectivePerception`：`ignite()` 执行首次点亮（闭合度不足则回路不成立，`loop_current` 恒为 0；`perceive()` 在未点亮时抛 `RuntimeError`），`perceive()` 按当前读数走一拍回流，`report()` 输出点灯状态 + 通道权重 + 边界声明。
+- 闭合度按**固定分母**计算（`agent_name`/`home`/`model_version`/`created_at`/`seed` 权重和 7.0，额外字段追加），缺项必然拉低闭合度，回路不会在信息不全时凭空闭合。
+- 点亮幂等：状态持久化到 `subjectivity_state.json`（`lit` / `lit_at` / `fingerprint` / `tick` / `last`），同一身份指纹重复点亮不重置 `lit_at`，只有身份来源变更才重新点亮并如实置 `first_ignition=True`。
+- `config.py`：`Dial` 新增 `subjective_enabled`（默认 `False`）、`subjective_closure_threshold` 0.35、`subjective_loop_lambda` 0.55、`subjective_feedback_alpha` 0.5、`subjective_gain` 4.0、`subjective_max_iterations` 24、`subjective_tolerance` 1e-4、`subjective_autostart`；`validate()` 对 λ / α / g / 迭代上限 / 阈值做钳制。
+- `engine.py`：注入 `self.subjectivity`，新增 `ignite_subjectivity()` / `perceive_self()` / `subjectivity_report()` 与内部 `_subjectivity_source()` / `_subjectivity_observations()`；`subjective_autostart=True` 时初始化即完成首次点亮。通道读数全部取自既有只读统计（记忆条数、污染占比、长期区占比、平均访问次数、平均熵），**不改原文与情感标签**，`recall` 行为逐字不变。
+- `stats()` 新增 `subjective_enabled` / `subjective_lit` / `subjective_tick` / `self_confidence` 四项。
+- `__init__.py` 导出 `SubjectivePerception` / `SelfObservation` / `LightUpReport` / `Perception` / `SenseChannel` / `SUBJECTIVITY_CHANNELS` / `SUBJECTIVITY_LIMITS`；`__version__` 与 `pyproject.toml` 同步升为 0.7.0。
+- 边界声明写入代码（`SUBJECTIVITY_LIMITS`）：输出仅为 self-model 功能属性（自我置信度 + 五维标定），**不声称意识**；未闭合时无回流；回流为确定性迭代、跨运行可复现；只观测不改写记忆。
+- 新增单测 20 项：`tests/test_v07_subjectivity.py`（通道权重归一、闭合度固定分母、关闭开关不点灯、来源不全不闭合、首次点亮回流收敛与确定性、通道单调性、零读数低压、幂等点亮、指纹变更重亮、未点亮 `perceive` 抛错、状态持久化与重载、报告边界、`Dial.validate` 钳制、引擎默认关 / 自动点亮 / `recall` 不受影响 / `perceive_self` 计数）。
+- 测试数演进：293 → 313（`unittest discover` 实测 313 项，全绿）。
+- 文档同步：`README.md` 新增 §5.3（电路类比、回流公式、通道表、三条硬约束、点亮幂等）、模块清单补 `subjectivity.py`、§7 补 v0.7.0 条目、§8 标题升版并补「通道为工程启发式、不构成意识证据」限制与通道标定路线图；`README_EN.md` 同步。
+
 ## v0.6.3 — 本地真实语义后端（fastembed / ONNX）与 paraphrase 对照实测
 
 - `embeddings.py` 新增 `FastEmbedder`：基于 fastembed + onnxruntime 的本地 ONNX 后端，**免 torch**；模型权重与 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 同源，输出统一 L2 归一化（`_l2_normalize`），与既有 `EmbeddingVectorizer` 接口一致。

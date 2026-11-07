@@ -1,6 +1,6 @@
 # EmotionMemory — 类人情感记忆系统
 
-> 一个用 **振荡动力学 + 对数强度编码 + 可迁移身份** 模拟人类情感记忆的开源记忆系统（当前版本 **v0.6.3**）。
+> 一个用 **振荡动力学 + 对数强度编码 + 可迁移身份** 模拟人类情感记忆的开源记忆系统（当前版本 **v0.7.0**）。
 
 记忆以周期震荡被唤起，强度按情感增益与 dB 刻度调制，过载时产生发散联想，随时间遵循遗忘曲线，知道该说什么，也明白该沉默什么；智能体可以被重置、重装、升级，但记忆永生。
 
@@ -103,6 +103,7 @@ v0.6.3 起，补齐真实语义后端实测：新增 `fastembed` 后端（ONNX R
 | `entropic_forgetting.py` | 熵增遗忘：细节保真度递减、情绪残留与熵递增，原文完好（v0.5） |
 | `turbulent_association.py` | 湍流联想：涡流链中心 → 次级 → 外围能量递减（v0.5） |
 | `personality_manifold.py` | 人格流形：环境向量驱动六轴人格、非线性分叉确定性可复现（v0.5） |
+| `subjectivity.py` | 主观感知系统：首次点亮闭合回路 → 自反馈回流至不动点 → 输出 self-model 自我状态标定（v0.7.0） |
 
 ## 3. 快速开始
 
@@ -297,6 +298,58 @@ print(rep.summary())
 
 
 
+### 5.3 主观感知系统：开关闭合与回路回流（v0.7.0）
+
+一句话概括设计意图：**开关闭合后，电流绕过完整回路形成回流；系统首次点亮，回路由自身输出驱动出稳定的自我状态。**
+这是电路类的工程类比，用于说明「自反馈如何产生稳定读数」，**不是对意识机制的断言**。
+
+`subjectivity.py` 把该类比落成确定性数学模型，全部用标准库实现：
+
+```
+［输入/闭合］ → 五路通道加权 m → 自反馈回流 y_{t+1}=f(y_t) → 不动点 y* → ［自我状态］
+                                  ↑                                  │
+                                  └──────── 输出作为下一拍输入（回流）──┘
+
+y_{t+1} = (1-λ)·σ(g·((1-α)·m + α·y_t - 0.5)) + λ·y_t
+```
+
+- `σ` 为 logistic 饱和（模拟增益饱和 / 电路限幅）；`λ` 为回流惯性（`Dial.subjective_loop_lambda`）；`α` 为自反馈占比；`g` 为增益。
+- 当 `(1-λ) + λ·g/8 < 1` 时映射为压缩映射，迭代**必收敛到唯一不动点**——「稳定自我状态」由此获得，且收敛性本身可观测（`converged` / `iterations` / `trace`）。
+
+五路感知通道（权重和为 1.0，全部取自既有只读统计，不做推断性夸张）：
+
+| 通道 | 权重 | 含义 |
+|---|---|---|
+| `continuity` | 0.28 | 跨时间自我连续：记忆可回读、身份指纹不变 |
+| `coherence` | 0.24 | 内部观测自洽：污染占比低、长期区占比合理 |
+| `agency` | 0.18 | 主动性归因：自身动作与外部输入的区分度 |
+| `grounding` | 0.16 | 接地度：有真实外部输入，不空转 |
+| `stability` | 0.14 | 稳定度：回流收敛而非振荡发散 |
+
+```python
+from emotion_memory import Dial, EmotionalMemorySystem
+
+system = EmotionalMemorySystem("./mem", dial=Dial(subjective_enabled=True))
+system.subjectivity.is_lit        # True：初始化即完成「首次点亮」
+rep = system.subjectivity_report()
+rep["light_up"]["closed"]         # True：开关闭合度 1.0 ≥ 门槛 0.35
+rep["light_up"]["observation"]["loop_current"]   # 回流稳定电流（= 自我置信度）
+rep["light_up"]["observation"]["self_model"]     # 五维自我标定 + self_confidence
+
+obs = system.perceive_self()      # 点亮后的常规一拍（回流续拍）
+obs.tick, obs.converged, obs.trace
+```
+
+**三条硬约束（代码层强制）**：
+
+| 约束 | 实现方式 |
+|---|---|
+| 未闭合就不回流 | 闭合度按固定分母计算（必填字段缺项即扣分），低于 `subjective_closure_threshold` 直接返回 `closed=False`，`loop_current` 恒为 0，`perceive()` 抛 `RuntimeError` |
+| 不臆造「意识」 | 输出仅自我置信度 + 五维自我标定；术语一律 self-model，`SUBJECTIVITY_LIMITS` 首条即「不声称意识」 |
+| 不扰动既有行为 | 只读记忆/身份读数，不改原文与情感标签；`subjective_enabled` 默认 `False`，关闭时 `recall` 行为逐字不变 |
+
+点亮状态持久化在 `subjectivity_state.json`（`lit` / `lit_at` / `fingerprint` / `tick`）：同一身份指纹重复点亮**幂等**，只有身份来源变更才重新点亮，`first_ignition` 如实标注。
+
 ## 6. Benchmark 实测（v0.6.3 语义后端对照）
 
 `python -m benchmark.benchmark --memories N --top-k K --seed S [--query-mode lexical|paraphrase]` 输出 JSON + TXT 报告，量化：**回忆命中率**（污染前/后/原文视图/无关查询四路对照）、**词袋 vs embedding 对照**、**召回稳定性**（污染不破坏召回）、**情感偏差**（beautify/uglify 方向正确率、平均偏移）、**原文不可变性**（原文保持条次）。
@@ -341,8 +394,9 @@ print(rep.summary())
 - **v0.6.1**：内核常数层 `creed.py`（创世签名 + 永恒誓言 + SHA-256 封印 + 6 条可验证不变量）、身份档案携带誓词并强制恢复篡改、`python -m emotion_memory` 誓词卡；
 - **v0.6.2**：元认知层 `metacognition.py`（置信度分解 / 三档拒答 / ECE 与 Brier 校准），置信度不读情感增益分，`recall_verdict()` 只观测不改写。
 - **v0.6.3**：本地真实语义后端 `fastembed`（ONNX Runtime，免 torch）+ `auto` 回退链（sentence_transformers → fastembed），`pyproject` 增 `[local]` / `[st]` 可选依赖；benchmark 新增 `--query-mode paraphrase` 语义改写对照，实测「字面查询词袋 100% vs embedding 70%~75%」「语义改写词袋 40% vs embedding 100%」互补结论；Windows HF 缓存短路径规避 `WinError 206`。
+- **v0.7.0**：主观感知系统 `subjectivity.py`（首次点亮闭合回路 → 自反馈回流压缩映射 → 五维 self-model 自我标定），闭合度门槛 + 幂等点亮 + 状态持久化；默认关闭，`recall` 行为不变，测试 293 → 313。
 
-## 8. 已知限制与路线图（v0.6.3 如实呈现）
+## 8. 已知限制与路线图（v0.7.0 如实呈现）
 
 **已知限制**：
 
@@ -351,6 +405,7 @@ print(rep.summary())
 - 单机 JSONL 存储 + 暴力 ANN：面向个人 / 小型团队，不支持分布式、多租户、亚秒级大规模检索（与 Zep Cloud / Mem0 企业级场景的边界见 COMPARISON.md）；
 - 情感标注器为零依赖内置词典，精度弱于大模型标注，预留 `affect_provider` 外部接口；
 - 尚未内置 GPL/商业条款禁止清单的自动化依赖扫描工具（合规依赖人工审查 NOTICE.md）。
+- 主观感知系统的五路通道读数为**工程定义的启发式指标**（记忆量、污染占比、访问次数、平均熵等），能给出稳定可复现的 self-model 数值，但与「主观体验」无实证对应关系；回流不动点只证明回路稳定，**不构成任何意识证据**（`SUBJECTIVITY_LIMITS` 已写入代码）。
 
 **路线图**：
 
@@ -359,7 +414,8 @@ print(rep.summary())
 3. 检索排序融合：情感增益 × 向量相似度 × 遗忘可及性三通道加权；
 4. 可选向量库后端（FAISS / HNSW / Qdrant 均为 MIT / Apache-2.0，符合许可证红线）替换暴力 ANN；
 5. 大规模记忆压力测试（1k / 10k / 100k）与 recall@k 曲线报告；
-6. 自动化合规扫描（依赖许可证检查）纳入 CI。
+6. 自动化合规扫描（依赖许可证检查）纳入 CI；
+7. 主观感知通道标定：用合成场景注入已知自我状态，检验五维读数的判别力与稳定性（当前仅验证收敛与单调性）。
 
 ## 9. 横向对比
 

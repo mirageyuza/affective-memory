@@ -51,6 +51,16 @@ from .metacognition import (
     RecallVerdict,
     calibrate,
 )
+# v0.7.0 主观感知系统：开关闭合 → 回路回流 → self-model 自我状态标定
+from .subjectivity import (
+    CHANNELS as SUBJECTIVITY_CHANNELS,
+    SUBJECTIVITY_LIMITS,
+    LightUpReport,
+    Perception,
+    SelfObservation,
+    SenseChannel,
+    SubjectivePerception,
+)
 # 内核常数层：创世签名 + 永恒誓言（最底层，不可协商）
 from .creed import (
     BOT_SIGNATURE,
@@ -64,7 +74,7 @@ from .creed import (
     verify_invariants,
 )
 
-__version__ = "0.6.3"
+__version__ = "0.7.0"
 __all__ = [
     "Dial",
     "AffectLabel",
@@ -113,6 +123,14 @@ __all__ = [
     "LEVEL_HEDGE",
     "LEVEL_ABSTAIN",
     "calibrate",
+    # v0.7.0 主观感知系统
+    "SubjectivePerception",
+    "SelfObservation",
+    "LightUpReport",
+    "Perception",
+    "SenseChannel",
+    "SUBJECTIVITY_CHANNELS",
+    "SUBJECTIVITY_LIMITS",
     # v0.6.3 可选 embedding 后端
     "EmbeddingVectorizer",
     "FastEmbedder",

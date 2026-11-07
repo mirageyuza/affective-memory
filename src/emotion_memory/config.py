@@ -68,6 +68,16 @@ class Dial:
     hedge_threshold: float = 0.30           # 置信度 ≥ 该值：采用但标注不确定（hedge）
     semantic_floor: float = 0.15            # top1 语义相关度下限，低于则强制拒答
 
+    # ---- v0.7.0 主观感知系统（首次点亮启动；默认关闭，保持既有行为） ----
+    subjective_enabled: bool = False        # 主观感知总开关（关闭=不点灯、无自我状态可读）
+    subjective_closure_threshold: float = 0.35  # 开关闭合度门槛，低于则回路不成立
+    subjective_loop_lambda: float = 0.55    # 回流惯性系数 λ（0~0.9）
+    subjective_feedback_alpha: float = 0.5  # 自反馈占比 α（输出回流进输入）
+    subjective_gain: float = 4.0            # sigmoid 增益 g（0~8，越大越接近开关型跳变）
+    subjective_max_iterations: int = 48     # 单拍回流最大迭代次数（压缩映射下 ~48 拍即可到 1e-4）
+    subjective_tolerance: float = 1e-4      # 回流收敛判据
+    subjective_autostart: bool = True       # 初始化时若闭合即自动点亮
+
     # ---- v0.6 可选 embedding 向量化后端（默认关闭，保持零依赖词袋哈希） ----
     embedding_enabled: bool = False        # embedding 向量化开关（关闭=零依赖词袋）
     embedding_backend: str = "mock"        # mock / openai_compat / local_compat / gemini / sentence_transformers / fastembed / auto
@@ -99,6 +109,13 @@ class Dial:
         self.hedge_threshold = min(1.0, max(0.0, float(self.hedge_threshold)))
         self.answer_threshold = min(0.99, max(self.hedge_threshold, float(self.answer_threshold)))
         self.semantic_floor = min(0.9, max(0.0, float(self.semantic_floor)))
+        # ---- v0.7.0 主观感知约束：λ 与 α 不得越界导致回路发散，迭代上限有底 ----
+        self.subjective_closure_threshold = min(1.0, max(0.0, float(self.subjective_closure_threshold)))
+        self.subjective_loop_lambda = min(0.9, max(0.0, float(self.subjective_loop_lambda)))
+        self.subjective_feedback_alpha = min(1.0, max(0.0, float(self.subjective_feedback_alpha)))
+        self.subjective_gain = min(8.0, max(0.0, float(self.subjective_gain)))
+        self.subjective_max_iterations = max(1, min(200, int(self.subjective_max_iterations)))
+        self.subjective_tolerance = max(1e-9, float(self.subjective_tolerance))
         return self
 
     def to_dict(self) -> Dict[str, Any]:

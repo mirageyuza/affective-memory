@@ -1,6 +1,6 @@
 # EmotionMemory — A Human-Like Emotional Memory System
 
-> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity** (current version **v0.6.3**).
+> An open-source memory system that simulates human emotional memory using **oscillatory dynamics + logarithmic intensity encoding + portable identity** (current version **v0.7.0**).
 
 Memories are reawakened by periodic oscillations, their intensity is modulated by emotional gain on a dB scale, overload triggers divergent associations, accessibility follows a forgetting curve over time. The system knows when to speak — and when to stay silent. An agent can be reset, reinstalled, or upgraded, but its memories live forever.
 
@@ -109,6 +109,7 @@ Corresponding code layout (`src/emotion_memory/`):
 | `entropic_forgetting.py` | Entropic forgetting: detail fidelity decays, emotional residue and entropy rise, original intact (v0.5) |
 | `turbulent_association.py` | Turbulent association: vortex chain center → secondary → periphery with decreasing energy (v0.5) |
 | `personality_manifold.py` | Personality manifold: environment-vector-driven six-axis personality, deterministic reproducible bifurcation (v0.5) |
+| `subjectivity.py` | Subjective perception: first ignition closes the loop -> self-feedback reflow to a fixed point -> self-model state calibration (v0.7.0) |
 
 ## 3. Quick Start
 
@@ -301,6 +302,58 @@ Abstention and hedge wording are fixed templates (`ABSTAIN_TEXT` / `HEDGE_TEXT`)
 `Dial.metacognition_enabled` is off by default: with it off, `recall` behaves exactly as before, while `recall_verdict` remains explicitly callable (observes only, rewrites nothing). Known limits live in `METACOGNITION_LIMITS`.
 
 
+### 5.3 Subjective Perception: Switch Closure and Loop Reflow (v0.7.0)
+
+The design intent in one line: **once the switch closes, current loops through the full circuit and forms a reflow; at first ignition the system drives that loop with its own output until a stable self-state emerges.**
+This is a circuit-style engineering analogy used to explain *how self-feedback yields a stable reading* — **it is not a claim about the mechanism of consciousness**.
+
+`subjectivity.py` turns the analogy into a deterministic model, standard library only:
+
+```
+[input / closure] -> five-channel weighted mean m -> self-feedback reflow y_{t+1}=f(y_t) -> fixed point y* -> [self-state]
+                                                   ^                                              |
+                                                   +---------- output feeds the next tick (reflow) -+
+
+y_{t+1} = (1-λ)·σ(g·((1-α)·m + α·y_t - 0.5)) + λ·y_t
+```
+
+- `σ` is a logistic saturation (models gain saturation / circuit clipping); `λ` is reflow inertia (`Dial.subjective_loop_lambda`); `α` is the self-feedback share; `g` is the gain.
+- When `(1-λ) + λ·g/8 < 1` the map is a contraction, so iteration **converges to a unique fixed point**; convergence itself is observable (`converged` / `iterations` / `trace`).
+
+Five perception channels (weights sum to 1.0; all read from existing read-only statistics):
+
+| Channel | Weight | Meaning |
+|---|---|---|
+| `continuity` | 0.28 | Cross-time continuity: memories readable, identity fingerprint unchanged |
+| `coherence` | 0.24 | Internal consistency: low pollution ratio, sane long-term ratio |
+| `agency` | 0.18 | Agency attribution: own actions distinguishable from external input |
+| `grounding` | 0.16 | Grounding: real external input, not idling |
+| `stability` | 0.14 | Stability: reflow converges instead of oscillating |
+
+```python
+from emotion_memory import Dial, EmotionalMemorySystem
+
+system = EmotionalMemorySystem("./mem", dial=Dial(subjective_enabled=True))
+system.subjectivity.is_lit        # True: first ignition happens at init
+rep = system.subjectivity_report()
+rep["light_up"]["closed"]         # True: closure 1.0 >= threshold 0.35
+rep["light_up"]["observation"]["loop_current"]   # stable reflow current (= self-confidence)
+rep["light_up"]["observation"]["self_model"]     # five self dimensions + self_confidence
+
+obs = system.perceive_self()      # a regular tick after ignition
+obs.tick, obs.converged, obs.trace
+```
+
+**Three hard constraints (enforced in code)**:
+
+| Constraint | Implementation |
+|---|---|
+| No closure, no reflow | Closure uses a fixed denominator (missing required fields cost points); below `subjective_closure_threshold` it returns `closed=False`, `loop_current` stays 0, and `perceive()` raises `RuntimeError` |
+| No fabricated "consciousness" | Output is only self-confidence plus five self dimensions; terminology is always self-model, and the first `SUBJECTIVITY_LIMITS` entry says "does not claim consciousness" |
+| No behaviour change | Reads memories/identity only, never rewrites original text or affect labels; `subjective_enabled` defaults to `False`, and with it off `recall` behaves byte-for-byte as before |
+
+Ignition state persists to `subjectivity_state.json` (`lit` / `lit_at` / `fingerprint` / `tick`): re-igniting with the same identity fingerprint is **idempotent**; only a changed identity source re-lights, and `first_ignition` reports it honestly.
+
 ## 6. Benchmark Results (v0.6.3 semantic-backend comparison)
 
 `python -m benchmark.benchmark --memories N --top-k K --seed S [--query-mode lexical|paraphrase]` outputs JSON + TXT reports quantifying: **recall accuracy** (pre-pollution / post-pollution / original view / unrelated queries), **bag-of-words vs embedding comparison**, **recall stability** (pollution does not break recall), **affect bias** (beautify/uglify directional accuracy, mean shift), and **original-text immutability** (kept count).
@@ -345,8 +398,9 @@ Reproducible results in this repository (20 mixed CN/EN memories, top-k=3, seeds
 - **v0.6.1**: kernel-constant layer `creed.py` (genesis signature + eternal oath + SHA-256 seal + 6 verifiable invariants), oath carried in the identity profile with forced restoration on tampering, `python -m emotion_memory` oath card;
 - **v0.6.2**: metacognition layer `metacognition.py` (confidence breakdown / three-level abstention / ECE & Brier calibration); confidence never reads the emotional-gain score, `recall_verdict()` observes only.
 - **v0.6.3**: real local semantic backend `fastembed` (ONNX Runtime, no torch) plus an `auto` fallback chain (sentence_transformers -> fastembed); `pyproject` gains `[local]` / `[st]` optional dependencies; the benchmark gains a `--query-mode paraphrase` semantic-rewrite comparison, establishing the complementary result of literal queries (BOW 100% vs embedding 70%-75%) and rewording queries (BOW 40% vs embedding 100%); the Windows HF cache uses a short path to avoid `WinError 206`.
+- **v0.7.0**: subjective perception system `subjectivity.py` (first ignition closes the loop -> self-feedback contraction -> five self-model dimensions), closure threshold, idempotent ignition, persisted state; off by default, `recall` unchanged, tests 293 -> 313.
 
-## 8. Known Limitations and Roadmap (v0.6.3, honest)
+## 8. Known Limitations and Roadmap (v0.7.0, honest)
 
 **Known limitations**:
 
@@ -355,6 +409,7 @@ Reproducible results in this repository (20 mixed CN/EN memories, top-k=3, seeds
 - Single-machine JSONL storage + brute-force ANN: targeted at individuals / small teams; no distributed, multi-tenant, or sub-second large-scale retrieval (boundary vs Zep Cloud / Mem0 enterprise scenarios in COMPARISON.md);
 - The affect labeler is a zero-dependency built-in lexicon, less accurate than LLM labeling; `affect_provider` external hook reserved;
 - No automated dependency scanner for GPL/commercial-license forbidden lists yet (compliance relies on manual review of NOTICE.md).
+- The five subjective-perception channels are **engineering-defined heuristics** (memory count, pollution ratio, access counts, mean entropy). They yield stable, reproducible self-model numbers but have no demonstrated relation to subjective experience; a stable fixed point only proves the loop is stable and is **not evidence of consciousness** (see `SUBJECTIVITY_LIMITS`).
 
 **Roadmap**:
 
@@ -363,7 +418,8 @@ Reproducible results in this repository (20 mixed CN/EN memories, top-k=3, seeds
 3. Retrieval ranking fusion: emotional gain × vector similarity × forgetting accessibility, three-channel weighted;
 4. Optional vector DB backends (FAISS / HNSW / Qdrant, all MIT / Apache-2.0, license-compliant) to replace brute-force ANN;
 5. Large-scale memory stress tests (1k / 10k / 100k) with recall@k curves;
-6. Automated compliance scanning (dependency license checks) in CI.
+6. Automated compliance scanning (dependency license checks) in CI;
+7. Subjective-channel calibration: inject known self-states in synthetic scenarios to test the discriminative power and stability of the five readings (today only convergence and monotonicity are verified).
 
 ## 9. Horizontal Comparison
 
